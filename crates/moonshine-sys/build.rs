@@ -14,8 +14,10 @@ fn find_moonshine_dir() -> PathBuf {
 
     let candidates = [
         PathBuf::from("../../moonshine"),
+        PathBuf::from("../moonshine"),
         PathBuf::from("../../../github/moonshine"),
-        PathBuf::from("/Users/ghchinoy/projects/github/moonshine"),
+        PathBuf::from("../../github/moonshine"),
+        PathBuf::from("../github/moonshine"),
     ];
 
     for candidate in &candidates {
@@ -25,7 +27,7 @@ fn find_moonshine_dir() -> PathBuf {
     }
 
     panic!(
-        "Could not find moonshine repository. Please set MOONSHINE_DIR environment variable."
+        "Could not find moonshine source repository. Please set the MOONSHINE_DIR environment variable to the path of the moonshine source tree."
     );
 }
 
@@ -39,20 +41,25 @@ fn get_onnxruntime_dir(core_dir: &Path) -> PathBuf {
         "windows" => "windows",
         "android" => "android",
         "ios" => "ios",
-        _ => "macos",
+        _ => target_os.as_str(),
     };
 
     let arch_sub = match target_arch.as_str() {
         "aarch64" | "arm64" => "arm64",
         "x86_64" => "x86_64",
-        _ => "arm64",
+        _ => target_arch.as_str(),
     };
 
     let ort_path = core_dir.join(format!("third-party/onnxruntime/lib/{}/{}", os_sub, arch_sub));
     if ort_path.exists() {
         ort_path
     } else {
-        core_dir.join("third-party/onnxruntime/lib/macos/arm64")
+        panic!(
+            "ONNX Runtime library directory does not exist at {}. Check target OS ({}) and architecture ({})",
+            ort_path.display(),
+            os_sub,
+            arch_sub
+        );
     }
 }
 
