@@ -5,6 +5,9 @@ use std::sync::Mutex;
 
 pub use moonshine_sys as sys;
 
+#[cfg(feature = "audio")]
+pub mod audio;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Moonshine C API error ({code}): {message}")]

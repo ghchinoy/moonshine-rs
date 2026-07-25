@@ -9,6 +9,8 @@ description = "Idiomatic Rust wrapper for Moonshine Voice speech-to-text"
 moonshine-sys = { path = "../moonshine-sys" }
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
+symphonia = { version = "0.5", features = ["all-formats", "all-codecs"], optional = true }
+rubato = { version = "0.16", optional = true }
 
 [dev-dependencies]
 hound = "3.5"
@@ -18,5 +20,6 @@ name = "transcribe_file"
 path = "../../examples/transcribe_file.rs"
 
 [features]
-default = []
+default = ["audio"]
+audio = ["dep:symphonia", "dep:rubato"]
 serde = ["dep:serde"]

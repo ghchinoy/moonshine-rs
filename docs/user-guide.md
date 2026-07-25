@@ -220,6 +220,28 @@ pub struct TranscriptLine {
 }
 ```
 
+#### Audio Decoding & Resampling Module (`moonshine_rs::audio`)
+
+When the `audio` feature is enabled (on by default), `moonshine-rs` provides built-in multi-format audio decoding (via `symphonia`) and high-quality sinc resampling (via `rubato`):
+
+```rust
+use moonshine_rs::audio::{decode_audio_file, resample_pcm, load_audio_for_transcription, ResampleQuality};
+
+// 1. One-line helper: opens MP3, AAC, WAV, FLAC, OGG, M4A, etc.,
+//    decodes and resamples automatically to 16kHz mono PCM float array:
+let pcm_16k_mono = load_audio_for_transcription("podcast.mp3")?;
+
+// 2. Granular decoding and custom resampling:
+let decoded = decode_audio_file("music.flac")?;
+let pcm_resampled = resample_pcm(
+    &decoded.pcm_data,
+    decoded.sample_rate,
+    16000,
+    decoded.channels,
+    ResampleQuality::High,
+)?;
+```
+
 ---
 
 ## 6. Building, Testing, and Examples
@@ -311,9 +333,16 @@ When publishing updated versions of the workspace to [crates.io](https://crates.
   - macOS: `xcode-select --install`
   - Linux: `sudo apt-get install llvm-dev libclang-dev clang`
 
-#### 3. Audio Sample Rate Discrepancies
-- **Cause**: Input PCM data is not 16,000 Hz.
-- **Solution**: Moonshine internally expects **16kHz mono 32-bit float PCM** normalized between `-1.0` and `1.0`. Convert or resample audio before passing to `transcribe()`.
+#### 3. `LoadOrtModelWithLoader ORT model verification failed` (Error code -1)
+- **Cause**: The `.ort` model files on disk are Git LFS pointer text files (~133 bytes) instead of true binary model weights. This happens if `git lfs pull` was not executed after cloning `moonshine-ai/moonshine`.
+- **Solution**:
+  - Run `git lfs pull` inside your `moonshine` repository checkout.
+  - Verify model file sizes: `encoder_model.ort` should be ~13MB+ for `tiny-en`, not 133 bytes.
+  - Alternatively, use models downloaded directly from CDN or cached by Python/Rust manifests (`~/Library/Caches/moonshine_voice/...`).
+
+#### 4. Audio Sample Rate & Format Differences
+- **Cause**: Passing raw audio without converting to 16,000 Hz mono PCM float.
+- **Solution**: Use `moonshine_rs::audio::load_audio_for_transcription("path/to/file")`, which automatically handles format decoding (MP3, AAC, WAV, FLAC, OGG) and 16kHz mono resampling via `rubato`.
 
 ---
 

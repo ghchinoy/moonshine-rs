@@ -1,7 +1,6 @@
 use std::env;
 use std::path::PathBuf;
 
-use hound::WavReader;
 use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,26 +41,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    // Read WAV audio samples using hound
-    let mut reader = WavReader::open(&audio_file)?;
-    let spec = reader.spec();
+    // Decode any audio format (WAV, MP3, AAC, FLAC, OGG, etc.) and resample to 16kHz mono PCM
+    let pcm_data = moonshine_rs::audio::load_audio_for_transcription(&audio_file)?;
+    let sample_rate = 16000;
+
     println!(
-        "Audio spec: {} Hz, {} channels, {} bits/sample",
-        spec.sample_rate, spec.channels, spec.bits_per_sample
+        "Loaded and normalized {} audio samples ({:.2}s at 16kHz)",
+        pcm_data.len(),
+        pcm_data.len() as f32 / sample_rate as f32
     );
-
-    let pcm_data: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().map(|s| s.unwrap_or(0.0)).collect(),
-        hound::SampleFormat::Int => {
-            let max_val = (1 << (spec.bits_per_sample - 1)) as f32;
-            reader
-                .samples::<i32>()
-                .map(|s| (s.unwrap_or(0) as f32) / max_val)
-                .collect()
-        }
-    };
-
-    println!("Loaded {} audio samples ({:.2}s)", pcm_data.len(), pcm_data.len() as f32 / spec.sample_rate as f32);
 
     let options = TranscriberOptions::new();
     let transcriber = Transcriber::from_files(&model_dir, ModelArch::Tiny, Some(&options))?;
@@ -69,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Transcriber loaded successfully (handle: {})", transcriber.handle());
 
     let start_time = std::time::Instant::now();
-    let transcript = transcriber.transcribe(&pcm_data, spec.sample_rate)?;
+    let transcript = transcriber.transcribe(&pcm_data, sample_rate)?;
     let duration = start_time.elapsed();
 
     println!("\n--- TRANSCRIPT (took {:?}) ---", duration);
