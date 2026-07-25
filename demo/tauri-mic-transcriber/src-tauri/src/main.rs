@@ -18,7 +18,7 @@ fn main() {
                     "Fast, on-device speech-to-text powered by Moonshine Voice (https://moonshine.ai)"
                         .to_string(),
                 ),
-                copyright: Some("© Moonshine AI (https://moonshine.ai)".to_string()),
+                copyright: Some("Thanks to Moonshine AI Team (https://moonshine.ai)".to_string()),
                 license: Some("MIT / Apache-2.0".to_string()),
                 website: Some("https://moonshine.ai".to_string()),
                 website_label: Some("Moonshine AI Website".to_string()),

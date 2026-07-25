@@ -6,6 +6,8 @@ import "./mic-recorder";
 import "./file-drop";
 import "./transcript-view";
 
+import "@material/web/iconbutton/outlined-icon-button.js";
+
 import { Transcript } from "./transcript-view";
 
 @customElement("moonshine-demo-app")
@@ -69,20 +71,8 @@ export class MoonshineDemoApp extends LitElement {
       gap: 10px;
     }
 
-    label {
-      font-size: 0.85rem;
-      color: var(--md-sys-color-on-surface-variant, #c5c6d0);
-      font-weight: 500;
-    }
-
-    select {
-      background-color: var(--md-sys-color-surface-container, #1e1f25);
-      color: var(--md-sys-color-on-surface, #e2e2e9);
-      border: 1px solid var(--md-sys-color-outline, #8f9099);
-      border-radius: 6px;
-      padding: 6px 12px;
-      font-family: inherit;
-      font-size: 0.85rem;
+    .theme-toggle-btn {
+      font-size: 1.2rem;
       cursor: pointer;
     }
 
@@ -107,20 +97,19 @@ export class MoonshineDemoApp extends LitElement {
 
   @state() private modelLoaded = false;
   @state() private currentTranscript: Transcript | null = null;
-  @state() private currentTheme = "dark";
+  @state() private isDarkMode = true;
 
   connectedCallback() {
     super.connectedCallback();
-    this.applyTheme("dark");
+    this.applyTheme(this.isDarkMode ? "dark" : "light");
   }
 
-  private handleThemeChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    this.applyTheme(select.value);
+  private toggleTheme() {
+    this.isDarkMode = !this.isDarkMode;
+    this.applyTheme(this.isDarkMode ? "dark" : "light");
   }
 
   private applyTheme(themeClass: string) {
-    this.currentTheme = themeClass;
     document.body.className = themeClass;
   }
 
@@ -140,7 +129,7 @@ export class MoonshineDemoApp extends LitElement {
           <div class="title-box">
             <h1>Moonshine Voice STT</h1>
             <div class="credit">
-              Powered by Moonshine Voice — ©
+              Powered by Moonshine Voice — Thanks to
               <a href="https://moonshine.ai" target="_blank" rel="noopener">
                 Moonshine AI Team
               </a>
@@ -149,19 +138,13 @@ export class MoonshineDemoApp extends LitElement {
         </div>
 
         <div class="theme-controls">
-          <label for="theme-select">Theme & Contrast:</label>
-          <select
-            id="theme-select"
-            .value=${this.currentTheme}
-            @change=${this.handleThemeChange}
+          <md-outlined-icon-button
+            class="theme-toggle-btn"
+            title="Toggle Light/Dark Theme"
+            @click=${this.toggleTheme}
           >
-            <option value="dark">Dark (Standard)</option>
-            <option value="dark-mc">Dark (Medium Contrast)</option>
-            <option value="dark-hc">Dark (High Contrast)</option>
-            <option value="light">Light (Standard)</option>
-            <option value="light-mc">Light (Medium Contrast)</option>
-            <option value="light-hc">Light (High Contrast)</option>
-          </select>
+            ${this.isDarkMode ? "☀️" : "🌙"}
+          </md-outlined-icon-button>
         </div>
       </div>
 

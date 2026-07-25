@@ -58,12 +58,23 @@ export class MoonshineModelPicker extends LitElement {
       color: #f87171;
     }
 
-    .actions {
+    select {
+      background-color: var(--md-sys-color-surface-container-high, #2b2930);
+      color: var(--md-sys-color-on-surface, #e2e2e9);
+      border: 1px solid var(--md-sys-color-outline, #8f9099);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .arch-selector {
       display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
       align-items: center;
-      margin-top: 8px;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: var(--md-sys-color-on-surface-variant, #c5c6d0);
     }
 
     .progress-box {
@@ -87,6 +98,7 @@ export class MoonshineModelPicker extends LitElement {
 
   @state() private isLoaded = false;
   @state() private modelPath = "";
+  @state() private selectedArch = 0; // 0: Tiny, 1: Base, 2: Tiny Streaming, 3: Base Streaming
   @state() private isDownloading = false;
   @state() private downloadProgress: DownloadProgress | null = null;
   @state() private statusMessage = "No model loaded. Please select or download a model.";
@@ -98,15 +110,31 @@ export class MoonshineModelPicker extends LitElement {
     });
   }
 
+  private handleArchChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    this.selectedArch = parseInt(select.value, 10);
+    // If a model is already specified, reload with new architecture
+    if (this.modelPath) {
+      this.loadModelPath(this.modelPath);
+    }
+  }
+
   async selectDirectory() {
     try {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: "Select Moonshine Model Directory (e.g. tiny-en)",
+        title: "Select Moonshine Model Directory (e.g. tiny-en or base)",
       });
 
       if (selected && typeof selected === "string") {
+        // Auto-detect architecture from directory path if "base" is in path
+        const lower = selected.toLowerCase();
+        if (lower.includes("base")) {
+          this.selectedArch = lower.includes("stream") ? 3 : 1;
+        } else if (lower.includes("tiny")) {
+          this.selectedArch = lower.includes("stream") ? 2 : 0;
+        }
         await this.loadModelPath(selected);
       }
     } catch (e: any) {
@@ -114,18 +142,20 @@ export class MoonshineModelPicker extends LitElement {
     }
   }
 
-  async downloadTinyModel() {
+  async downloadModel(arch: number) {
+    this.selectedArch = arch;
     this.isDownloading = true;
-    this.statusMessage = "Fetching model dependencies manifest...";
+    const archName = arch === 1 ? "base-en" : "tiny-en";
+    this.statusMessage = `Fetching ${archName} model dependencies manifest...`;
 
     try {
       const manifestJson = await invoke<string>("get_stt_dependencies", {
         language: "en",
-        modelArch: 0, // Tiny
+        modelArch: arch,
       });
 
-      this.statusMessage = "Downloading model files from CDN...";
-      const destDir = "models/tiny-en/quantized/tiny-en";
+      this.statusMessage = `Downloading ${archName} model files from CDN...`;
+      const destDir = `models/${archName}/quantized/${archName}`;
 
       const finalPath = await invoke<string>("download_model_files", {
         manifestJson,
@@ -146,7 +176,7 @@ export class MoonshineModelPicker extends LitElement {
     try {
       const result = await invoke<string>("load_transcriber", {
         modelDir: path,
-        archU32: 0, // Tiny
+        archU32: this.selectedArch,
       });
 
       this.modelPath = path;
@@ -176,6 +206,20 @@ export class MoonshineModelPicker extends LitElement {
       </div>
 
       <div class="actions">
+        <div class="arch-selector">
+          <label for="arch-select">Architecture:</label>
+          <select
+            id="arch-select"
+            .value=${String(this.selectedArch)}
+            @change=${this.handleArchChange}
+          >
+            <option value="0">Tiny</option>
+            <option value="1">Base</option>
+            <option value="2">Tiny Streaming</option>
+            <option value="3">Base Streaming</option>
+          </select>
+        </div>
+
         <md-filled-button
           ?disabled=${this.isDownloading}
           @click=${this.selectDirectory}
@@ -185,9 +229,16 @@ export class MoonshineModelPicker extends LitElement {
 
         <md-outlined-button
           ?disabled=${this.isDownloading}
-          @click=${this.downloadTinyModel}
+          @click=${() => this.downloadModel(0)}
         >
-          ⬇️ Auto-Download tiny-en Model
+          ⬇️ Auto-Download tiny-en
+        </md-outlined-button>
+
+        <md-outlined-button
+          ?disabled=${this.isDownloading}
+          @click=${() => this.downloadModel(1)}
+        >
+          ⬇️ Auto-Download base-en
         </md-outlined-button>
       </div>
 
