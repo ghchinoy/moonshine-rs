@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import "@material/web/button/outlined-button.js";
+import "@material/web/progress/linear-progress.js";
 
 @customElement("moonshine-file-drop")
 export class MoonshineFileDrop extends LitElement {
@@ -54,6 +55,10 @@ export class MoonshineFileDrop extends LitElement {
     .drop-sub {
       font-size: 0.8rem;
       color: var(--md-sys-color-on-surface-variant, #c5c6d0);
+    }
+
+    .progress-box {
+      margin-top: 10px;
     }
 
     .status-text {
@@ -123,7 +128,7 @@ export class MoonshineFileDrop extends LitElement {
 
   render() {
     return html`
-      <h2>3. Audio File Import</h2>
+      <h2>Audio File Import</h2>
 
       <div class="drop-zone" @click=${this.selectFile}>
         <div class="drop-title">📂 Browse Audio File</div>
@@ -131,6 +136,14 @@ export class MoonshineFileDrop extends LitElement {
           MP3, WAV, AAC, FLAC, OGG, M4A, CAF (auto-resampled via rubato)
         </div>
       </div>
+
+      ${this.isTranscribing
+        ? html`
+            <div class="progress-box">
+              <md-linear-progress indeterminate></md-linear-progress>
+            </div>
+          `
+        : ""}
 
       <div class="status-text">${this.statusText}</div>
     `;

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions, Transcript};
 
@@ -147,53 +147,58 @@ pub fn load_transcriber(
 }
 
 #[tauri::command]
-pub fn transcribe_audio_file(
-    state: State<'_, AppState>,
+pub async fn transcribe_audio_file(
+    app: AppHandle,
     file_path: String,
 ) -> Result<Transcript, String> {
-    let lock = state.transcriber.lock().unwrap();
-    let transcriber = lock
-        .as_ref()
-        .ok_or_else(|| "Transcriber is not loaded yet. Please select or download a model.".to_string())?;
+    tokio::task::spawn_blocking(move || -> Result<Transcript, String> {
+        let pcm_data = moonshine_rs::audio::load_audio_for_transcription(file_path)
+            .map_err(|e| format!("Failed to decode/resample audio file: {}", e))?;
 
-    let pcm_data = moonshine_rs::audio::load_audio_for_transcription(file_path)
-        .map_err(|e| format!("Failed to decode/resample audio file: {}", e))?;
+        let state = app.state::<AppState>();
+        let lock = state.transcriber.lock().unwrap();
+        let transcriber = lock
+            .as_ref()
+            .ok_or_else(|| "Transcriber is not loaded yet. Please select or download a model.".to_string())?;
 
-    let transcript = transcriber
-        .transcribe(&pcm_data, 16000)
-        .map_err(|e| format!("Transcription error: {}", e))?;
-
-    Ok(transcript)
+        transcriber
+            .transcribe(&pcm_data, 16000)
+            .map_err(|e| format!("Transcription error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
-pub fn transcribe_pcm_samples(
-    state: State<'_, AppState>,
+pub async fn transcribe_pcm_samples(
+    app: AppHandle,
     pcm_samples: Vec<f32>,
     sample_rate: u32,
 ) -> Result<Transcript, String> {
-    let lock = state.transcriber.lock().unwrap();
-    let transcriber = lock
-        .as_ref()
-        .ok_or_else(|| "Transcriber is not loaded yet. Please select or download a model.".to_string())?;
+    tokio::task::spawn_blocking(move || -> Result<Transcript, String> {
+        let pcm_16k = if sample_rate != 16000 {
+            moonshine_rs::audio::resample_pcm(
+                &pcm_samples,
+                sample_rate,
+                16000,
+                1,
+                moonshine_rs::audio::ResampleQuality::Fast,
+            )
+            .map_err(|e| format!("Failed to resample mic audio: {}", e))?
+        } else {
+            pcm_samples
+        };
 
-    // If source sample rate is not 16000, resample using rubato helper
-    let pcm_16k = if sample_rate != 16000 {
-        moonshine_rs::audio::resample_pcm(
-            &pcm_samples,
-            sample_rate,
-            16000,
-            1,
-            moonshine_rs::audio::ResampleQuality::Fast,
-        )
-        .map_err(|e| format!("Failed to resample mic audio: {}", e))?
-    } else {
-        pcm_samples
-    };
+        let state = app.state::<AppState>();
+        let lock = state.transcriber.lock().unwrap();
+        let transcriber = lock
+            .as_ref()
+            .ok_or_else(|| "Transcriber is not loaded yet. Please select or download a model.".to_string())?;
 
-    let transcript = transcriber
-        .transcribe(&pcm_16k, 16000)
-        .map_err(|e| format!("Transcription error: {}", e))?;
-
-    Ok(transcript)
+        transcriber
+            .transcribe(&pcm_16k, 16000)
+            .map_err(|e| format!("Transcription error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }

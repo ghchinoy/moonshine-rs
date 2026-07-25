@@ -142,6 +142,24 @@ export class MoonshineModelPicker extends LitElement {
     }
   }
 
+  private get selectedArchLabel(): string {
+    switch (this.selectedArch) {
+      case 1:
+        return "base-en";
+      case 2:
+        return "tiny-en (streaming)";
+      case 3:
+        return "base-en (streaming)";
+      case 0:
+      default:
+        return "tiny-en";
+    }
+  }
+
+  async downloadSelectedModel() {
+    await this.downloadModel(this.selectedArch);
+  }
+
   async downloadModel(arch: number) {
     this.selectedArch = arch;
     this.isDownloading = true;
@@ -199,7 +217,7 @@ export class MoonshineModelPicker extends LitElement {
   render() {
     return html`
       <div class="header">
-        <h2>1. Model Selection</h2>
+        <h2>Model Selection</h2>
         <div class="status-badge ${this.isLoaded ? "loaded" : "not-loaded"}">
           ${this.isLoaded ? "Model Loaded" : "No Model Loaded"}
         </div>
@@ -229,16 +247,9 @@ export class MoonshineModelPicker extends LitElement {
 
         <md-outlined-button
           ?disabled=${this.isDownloading}
-          @click=${() => this.downloadModel(0)}
+          @click=${this.downloadSelectedModel}
         >
-          ⬇️ Auto-Download tiny-en
-        </md-outlined-button>
-
-        <md-outlined-button
-          ?disabled=${this.isDownloading}
-          @click=${() => this.downloadModel(1)}
-        >
-          ⬇️ Auto-Download base-en
+          ⬇️ Auto-Download ${this.selectedArchLabel} Model
         </md-outlined-button>
       </div>
 

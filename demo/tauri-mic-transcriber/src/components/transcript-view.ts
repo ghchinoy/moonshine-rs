@@ -96,7 +96,7 @@ export class MoonshineTranscriptView extends LitElement {
 
     return html`
       <div class="header">
-        <h2>4. Transcript Output</h2>
+        <h2>Transcript Output</h2>
         ${lines.length > 0
           ? html`
               <md-outlined-button @click=${this.copyTranscript}>

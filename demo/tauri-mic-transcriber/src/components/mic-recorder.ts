@@ -201,7 +201,7 @@ export class MoonshineMicRecorder extends LitElement {
 
   render() {
     return html`
-      <h2>2. Microphone Dictation</h2>
+      <h2>Microphone Dictation</h2>
 
       <div class="status-text">${this.statusText}</div>
 
