@@ -2,6 +2,7 @@
 members = [
     "crates/moonshine-sys",
     "crates/moonshine-rs",
+    "demo/tauri-mic-transcriber/src-tauri",
 ]
 resolver = "2"
 

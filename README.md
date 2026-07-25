@@ -15,6 +15,7 @@ Idiomatic Rust bindings for [Moonshine Voice](https://github.com/moonshine-ai/mo
 - [Architecture & How It Works](#architecture--how-it-works)
 - [Installation](#installation)
 - [Usage Example](#usage-example)
+- [Tauri v2 + Lit Demo App](#tauri-v2--lit-demo-app)
 - [Local Development Setup](#local-development-setup)
 - [Contributing](#contributing)
 - [License](#license)
@@ -105,6 +106,21 @@ Run the included example directly:
 
 ```bash
 cargo run --example transcribe_file -p moonshine-rs -- /path/to/model_dir /path/to/audio.wav
+```
+
+## Tauri v2 + Lit Demo App
+
+A complete, production-ready desktop example is available at [`demo/tauri-mic-transcriber`](demo/tauri-mic-transcriber):
+
+- **Lit Web Components**: Modular UI components (`<moonshine-model-picker>`, `<moonshine-mic-recorder>`, `<moonshine-file-drop>`, `<moonshine-transcript-view>`).
+- **Live Mic Dictation**: Real-time microphone audio capture via Web Audio API.
+- **In-App Model Downloader**: Live download progress bar fetching models directly from `download.moonshine.ai`.
+- **Drag-and-Drop Audio**: Drag & drop any MP3, WAV, AAC, FLAC, OGG file to transcribe.
+
+```bash
+cd demo/tauri-mic-transcriber
+npm install
+npx @tauri-apps/cli dev
 ```
 
 ## Local Development Setup

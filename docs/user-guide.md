@@ -271,6 +271,17 @@ cargo run --example transcribe_file -p moonshine-rs -- \
     /path/to/audio_16k.wav
 ```
 
+### Running the Tauri v2 + Lit Web Components Demo App
+
+`moonshine-rs` includes a full-featured desktop demo application at [`demo/tauri-mic-transcriber`](../demo/tauri-mic-transcriber):
+
+```bash
+cd demo/tauri-mic-transcriber
+npm install
+export MOONSHINE_DIR=/path/to/moonshine
+npx @tauri-apps/cli dev
+```
+
 **Sample Output:**
 
 ```text
