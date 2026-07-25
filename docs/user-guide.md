@@ -86,23 +86,48 @@ tiny-en/quantized/tiny-en/
 └── tokenizer.bin                # Binary vocabulary tokenizer
 ```
 
-### Download Command
+### How to Download Models
 
-You can download model assets using Python or Moonshine's native catalog API:
+#### Option A: Direct Download via `curl` / `wget`
+
+The quantized model files can be downloaded directly from the official CDN:
 
 ```bash
-# Using Python script from the moonshine repository:
-python scripts/download-moonshine-model.py --model-type tiny --model-language en
+# Create target directory
+mkdir -p models/tiny-en/quantized/tiny-en
+cd models/tiny-en/quantized/tiny-en
+
+# Download required model files for tiny-en
+BASE_URL="https://download.moonshine.ai/model/tiny-en/quantized/tiny-en"
+curl -O "$BASE_URL/encoder_model.ort"
+curl -O "$BASE_URL/decoder_model_merged.ort"
+curl -O "$BASE_URL/tokenizer.bin"
 ```
 
-Or query dependencies programmatically in Rust:
+#### Option B: Query Manifest Programmatically in Rust
+
+`moonshine-rs` exposes the native catalog dependency API to resolve download URLs, file sizes, and checksums:
 
 ```rust
 use moonshine_rs::{get_stt_dependencies, ModelArch};
 
+// Returns JSON manifest containing CDN URLs, sizes, and CRC32C checksums
 let manifest_json = get_stt_dependencies("en", Some(ModelArch::Tiny), false)?;
 println!("Download Manifest: {}", manifest_json);
 ```
+
+#### Option C: Official Python CLI (`moonshine-voice`)
+
+If you have Python installed, you can use the official `moonshine-voice` package:
+
+```bash
+# Install official Moonshine Voice Python package
+pip install moonshine-voice
+
+# Download STT assets for English tiny model (model-arch 0 = TINY, 1 = BASE)
+moonshine-voice download --stt --language en --model-arch 0
+```
+This downloads and caches model files automatically to `~/Library/Caches/moonshine_voice/download.moonshine.ai/model/...` (on macOS) or `~/.cache/moonshine_voice/...` (on Linux).
 
 ---
 
