@@ -6,16 +6,16 @@ Idiomatic Rust bindings for [Moonshine Voice](https://github.com/moonshine-ai/mo
 [![docs.rs](https://docs.rs/moonshine-rs/badge.svg)](https://docs.rs/moonshine-rs)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-`moonshine-rs` provides high-level, memory-safe Rust bindings to the official `libmoonshine` C API. It compiles the Moonshine C/C++ core directly from source and statically links ONNX Runtime, eliminating `dlopen` runtime shared-library dependencies and avoiding cross-platform load issues.
+`moonshine-rs` provides high-level, memory-safe Rust bindings to the official [`libmoonshine`](https://github.com/moonshine-ai/moonshine) C API. It compiles the Moonshine C/C++ core directly from source and statically links ONNX Runtime, eliminating `dlopen` runtime shared-library dependencies and avoiding cross-platform load issues.
 
 ## Table of Contents
 
 - [Features](#features)
+- [Moonshine Models](#moonshine-models)
 - [Architecture & How It Works](#architecture--how-it-works)
 - [Installation](#installation)
 - [Usage Example](#usage-example)
 - [Local Development Setup](#local-development-setup)
-- [Publishing](#publishing)
 - [Contributing](#contributing)
 - [License](#license)
 - [Documentation](#documentation)
@@ -27,6 +27,19 @@ Idiomatic Rust bindings for [Moonshine Voice](https://github.com/moonshine-ai/mo
 - **Fast Performance**: Transcribes 44 seconds of audio in under 1 second using the `tiny-en` model on Apple Silicon.
 - **Safe API**: Ergonomic Rust wrapper over low-level FFI with safe memory management, typed error handling, and thread-safe transcriber handles.
 - **Dependency & Catalog Metadata**: Query official STT model catalogs and asset manifests natively in Rust.
+
+## Moonshine Models
+
+Moonshine provides multiple quantized ONNX speech-to-text models optimized for edge devices and desktop UI applications:
+
+- **Available Models & Weights**: Explore source weights and pre-converted ONNX activation models on the [UsefulSensors Hugging Face Hub](https://huggingface.co/UsefulSensors).
+- **Official Model Catalog & CDN**: Live manifests, checksums, and assets are published at [download.moonshine.ai](https://download.moonshine.ai).
+- **Supported Architectures**:
+  - `tiny-en` (~71 MB): Fast, lightweight footprint ideal for real-time desktop dictation.
+  - `base-en` (~238 MB): Higher accuracy model for complex phrase transcription.
+  - Streaming variants (`tiny-streaming-en`, `small-streaming-en`, etc.).
+
+You can query available models and download URLs directly in Rust using `get_stt_catalog()` or `get_stt_dependencies()`.
 
 ## Architecture & How It Works
 
@@ -109,7 +122,7 @@ cargo run --example transcribe_file -p moonshine-rs -- /path/to/model_dir /path/
 
 ```bash
 git clone https://github.com/moonshine-ai/moonshine.git
-git clone https://github.com/G-H-Chinoy/moonshine-rs.git
+git clone https://github.com/ghchinoy/moonshine-rs.git
 ```
 
 2. Build the workspace:
@@ -123,20 +136,6 @@ cargo build --workspace
 
 ```bash
 cargo test --workspace
-```
-
-## Publishing
-
-To publish updated versions to crates.io:
-
-```bash
-# 1. Publish low-level sys bindings first
-cd crates/moonshine-sys
-cargo publish
-
-# 2. Publish high-level wrapper
-cd ../moonshine-rs
-cargo publish
 ```
 
 ## Contributing
@@ -154,4 +153,4 @@ at your option.
 
 ## Documentation
 
-For a comprehensive guide covering model downloading, build options, architecture deep dives, and troubleshooting, see the [Developer User Guide](docs/user-guide.md).
+For a comprehensive guide covering model downloading, build options, architecture deep dives, publishing, and troubleshooting, see the [Developer User Guide](docs/user-guide.md).

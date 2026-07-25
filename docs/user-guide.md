@@ -12,8 +12,9 @@ This guide provides an in-depth walkthrough for developers building with or cont
 - [4. FFI & Build System Internals](#4-ffi--build-system-internals)
 - [5. API Deep Dive](#5-api-deep-dive)
 - [6. Building, Testing, and Examples](#6-building-testing-and-examples)
-- [7. Troubleshooting & Platform Notes](#7-troubleshooting--platform-notes)
-- [8. Current Scope & Roadmap](#8-current-scope--roadmap)
+- [7. Publishing to Crates.io](#7-publishing-to-cratesio)
+- [8. Troubleshooting & Platform Notes](#8-troubleshooting--platform-notes)
+- [9. Current Scope & Roadmap](#9-current-scope--roadmap)
 
 ---
 
@@ -61,6 +62,11 @@ To build `moonshine-sys` from source, your environment requires:
 ## 3. Obtaining Model Assets
 
 Moonshine STT uses ONNX Runtime (`.ort`) quantized model files. You need model assets to transcribe audio.
+
+### Where to Find Models
+
+- **UsefulSensors Hugging Face Model Hub**: [https://huggingface.co/UsefulSensors](https://huggingface.co/UsefulSensors) contains source model weights, conversion scripts, and pre-converted ONNX models.
+- **Moonshine CDN & Model Manifests**: [download.moonshine.ai](https://download.moonshine.ai) hosts model groups, checksums, and CRC32C validation manifests used by official client libraries.
 
 ### Model Sizes
 
@@ -198,7 +204,7 @@ pub struct TranscriptLine {
 ```bash
 # 1. Clone repositories side-by-side
 git clone https://github.com/moonshine-ai/moonshine.git
-git clone https://github.com/G-H-Chinoy/moonshine-rs.git
+git clone https://github.com/ghchinoy/moonshine-rs.git
 
 # 2. Change to moonshine-rs directory
 cd moonshine-rs
@@ -238,7 +244,32 @@ Line 3: [6.43s - 8.54s] It was the age of foolishness.
 
 ---
 
-## 7. Troubleshooting & Platform Notes
+## 7. Publishing to Crates.io
+
+When publishing updated versions of the workspace to [crates.io](https://crates.io):
+
+1. **Verify workspace builds and dry-runs clean**:
+   ```bash
+   cargo test --workspace
+   cargo publish --dry-run -p moonshine-sys
+   cargo publish --dry-run -p moonshine-rs
+   ```
+
+2. **Publish low-level sys bindings first**:
+   ```bash
+   cd crates/moonshine-sys
+   cargo publish
+   ```
+
+3. **Publish high-level wrapper crate second**:
+   ```bash
+   cd ../moonshine-rs
+   cargo publish
+   ```
+
+---
+
+## 8. Troubleshooting & Platform Notes
 
 ### Common Issues
 
@@ -261,7 +292,7 @@ Line 3: [6.43s - 8.54s] It was the age of foolishness.
 
 ---
 
-## 8. Current Scope & Roadmap
+## 9. Current Scope & Roadmap
 
 ### v1.0 Scope (Current)
 - ✅ Non-streaming batch transcription (`moonshine_transcribe_without_streaming`).
