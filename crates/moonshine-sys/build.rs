@@ -64,6 +64,38 @@ fn get_onnxruntime_dir(core_dir: &Path) -> PathBuf {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=MOONSHINE_DIR");
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
+    println!("cargo:rerun-if-changed=wrapper.h");
+
+    // docs.rs builds in a network-isolated sandbox with no sibling `moonshine`
+    // checkout and no way to set MOONSHINE_DIR. It only needs bindgen output
+    // to render documentation, not a working linked binary, so skip the CMake
+    // build and native linking entirely and generate bindings from a small
+    // vendored copy of the C API header instead.
+    //
+    // See: https://docs.rs/about/builds ("Detecting Docs.rs")
+    if env::var("DOCS_RS").is_ok() {
+        let vendor_dir = PathBuf::from("vendor");
+        println!(
+            "cargo:rerun-if-changed={}",
+            vendor_dir.join("moonshine-c-api.h").display()
+        );
+
+        let bindings = bindgen::Builder::default()
+            .header("wrapper.h")
+            .clang_arg(format!("-I{}", vendor_dir.display()))
+            .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+            .generate()
+            .expect("Unable to generate bindings (docs.rs mode)");
+
+        let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+        bindings
+            .write_to_file(out_path.join("bindings.rs"))
+            .expect("Couldn't write bindings!");
+        return;
+    }
+
     let moonshine_root = find_moonshine_dir();
     let core_dir = if moonshine_root.join("core").exists() {
         moonshine_root.join("core")
@@ -71,8 +103,6 @@ fn main() {
         moonshine_root.clone()
     };
 
-    println!("cargo:rerun-if-env-changed=MOONSHINE_DIR");
-    println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed={}", core_dir.join("moonshine-c-api.h").display());
 
     let mut config = cmake::Config::new(&core_dir);

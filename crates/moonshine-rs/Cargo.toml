@@ -10,7 +10,7 @@ keywords = ["stt", "speech-to-text", "moonshine", "audio", "onnx"]
 categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
-moonshine-sys = { path = "../moonshine-sys", version = "0.1.0" }
+moonshine-sys = { path = "../moonshine-sys", version = "0.1.1" }
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 symphonia = { version = "0.5", features = ["all-formats", "all-codecs"], optional = true }
