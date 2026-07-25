@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Low-level FFI bindings to libmoonshine"
+repository.workspace = true
+readme = "README.md"
+keywords = ["stt", "speech-to-text", "moonshine", "ffi", "onnx"]
+categories = ["external-ffi-bindings", "multimedia::audio"]
 
 [build-dependencies]
 bindgen = "0.69"

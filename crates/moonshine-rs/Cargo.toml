@@ -4,9 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Idiomatic Rust wrapper for Moonshine Voice speech-to-text"
+repository.workspace = true
+readme = "README.md"
+keywords = ["stt", "speech-to-text", "moonshine", "audio", "onnx"]
+categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
-moonshine-sys = { path = "../moonshine-sys" }
+moonshine-sys = { path = "../moonshine-sys", version = "0.1.0" }
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 symphonia = { version = "0.5", features = ["all-formats", "all-codecs"], optional = true }
@@ -17,7 +21,7 @@ hound = "3.5"
 
 [[example]]
 name = "transcribe_file"
-path = "../../examples/transcribe_file.rs"
+path = "examples/transcribe_file.rs"
 
 [features]
 default = ["audio"]
