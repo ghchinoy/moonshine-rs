@@ -10,6 +10,7 @@ This guide provides an in-depth walkthrough for developers building with or cont
 - [2. System Requirements](#2-system-requirements)
 - [3. Obtaining Model Assets](#3-obtaining-model-assets)
 - [4. FFI & Build System Internals](#4-ffi--build-system-internals)
+  - [4.1 Distribution & Packaging Lessons Learned](#41-distribution--packaging-lessons-learned)
 - [5. API Deep Dive](#5-api-deep-dive)
 - [6. Building, Testing, and Examples](#6-building-testing-and-examples)
 - [7. Publishing to Crates.io](#7-publishing-to-cratesio)
@@ -158,6 +159,23 @@ config.build_target("moonshine");
 On macOS/iOS, `MOONSHINE_BUILD_SWIFT=ON` bundles the C++ targets (`moonshine`, `bin-tokenizer`, `ort-utils`, `moonshine-utils`) and `libonnxruntime.a` into a static `moonshine.framework`.
 
 On Linux/Windows, `build.rs` links discrete static targets (`libmoonshine.a`, `libbin-tokenizer.a`, `libort-utils.a`, `libmoonshine-utils.a`) alongside `libonnxruntime.a` from `core/third-party/onnxruntime/lib/<os>/<arch>/`.
+
+### 4.1 Distribution & Packaging Lessons Learned
+
+Integrating `moonshine-rs` into desktop application frameworks (such as Tauri v2) provided several key architectural lessons for distributing native Rust + ONNX Runtime bindings:
+
+1. **Static Linking Eliminates Desktop Packaging Friction**:
+   - Compiling `libmoonshine` from source with `MOONSHINE_BUILD_SHARED=OFF` statically embeds ONNX Runtime directly into `moonshine-sys`.
+   - When consuming `moonshine-rs` inside Tauri, **no custom `rpath`, `@executable_path`, or `tauri.conf.json` `resources` entries** were required to bundle or find dynamic libraries (`.dylib` / `.so` / `.dll`).
+   - The final application binary is completely self-contained, avoiding macOS signed bundle dynamic linking failures and `dlopen` runtime errors.
+
+2. **Source Build vs Prebuilt Binary Acquisition**:
+   - The current build strategy requires a local clone of `moonshine-ai/moonshine` (located via `MOONSHINE_DIR` or relative sibling directory search) plus CMake and a C++20 toolchain.
+   - While effective for core framework development, requiring a full C++ monorepo checkout is a heavyweight prerequisite for downstream `cargo add moonshine-rs` users.
+   - **Target Solution**: Future releases will introduce an opt-in `download-binaries` feature in `moonshine-sys/build.rs` (modeled after `ort-sys`). This automatically fetches prebuilt release tarballs (e.g. `moonshine-voice-macos-arm64.tar.gz`) from `moonshine-ai/moonshine` GitHub Releases and links directly, unblocking standard `cargo add` workflows while keeping the `MOONSHINE_DIR` source build as a fallback.
+
+3. **Asset Separation**:
+   - Heavy ONNX model weights (`.ort` files, ~44MB–240MB) should be fetched at runtime via the built-in manifest API or cached in standard system user cache directories (`~/Library/Caches/...` or `~/.cache/...`), rather than checked into git repositories.
 
 ---
 

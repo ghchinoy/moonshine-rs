@@ -58,23 +58,43 @@ export class MoonshineModelPicker extends LitElement {
       color: #f87171;
     }
 
-    select {
+    .actions {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 8px;
+    }
+
+    .split-button-group {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .split-select {
       background-color: var(--md-sys-color-surface-container-high, #2b2930);
       color: var(--md-sys-color-on-surface, #e2e2e9);
       border: 1px solid var(--md-sys-color-outline, #8f9099);
-      border-radius: 8px;
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+      border-right: none;
       padding: 8px 12px;
       font-family: inherit;
       font-size: 0.85rem;
+      height: 40px;
       cursor: pointer;
+      outline: none;
     }
 
-    .arch-selector {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.85rem;
-      color: var(--md-sys-color-on-surface-variant, #c5c6d0);
+    .split-select:focus {
+      border-color: var(--md-sys-color-primary, #b0c6ff);
+    }
+
+    .split-action-btn {
+      --md-outlined-button-container-shape: 0px 8px 8px 0px;
+      height: 40px;
     }
 
     .progress-box {
@@ -224,20 +244,6 @@ export class MoonshineModelPicker extends LitElement {
       </div>
 
       <div class="actions">
-        <div class="arch-selector">
-          <label for="arch-select">Architecture:</label>
-          <select
-            id="arch-select"
-            .value=${String(this.selectedArch)}
-            @change=${this.handleArchChange}
-          >
-            <option value="0">Tiny</option>
-            <option value="1">Base</option>
-            <option value="2">Tiny Streaming</option>
-            <option value="3">Base Streaming</option>
-          </select>
-        </div>
-
         <md-filled-button
           ?disabled=${this.isDownloading}
           @click=${this.selectDirectory}
@@ -245,12 +251,28 @@ export class MoonshineModelPicker extends LitElement {
           📁 Browse Local Directory
         </md-filled-button>
 
-        <md-outlined-button
-          ?disabled=${this.isDownloading}
-          @click=${this.downloadSelectedModel}
-        >
-          ⬇️ Auto-Download ${this.selectedArchLabel} Model
-        </md-outlined-button>
+        <div class="split-button-group">
+          <select
+            id="arch-select"
+            class="split-select"
+            .value=${String(this.selectedArch)}
+            @change=${this.handleArchChange}
+            title="Select Model Architecture"
+          >
+            <option value="0">Tiny</option>
+            <option value="1">Base</option>
+            <option value="2">Tiny Streaming</option>
+            <option value="3">Base Streaming</option>
+          </select>
+
+          <md-outlined-button
+            class="split-action-btn"
+            ?disabled=${this.isDownloading}
+            @click=${this.downloadSelectedModel}
+          >
+            ⬇️ Auto-Download ${this.selectedArchLabel}
+          </md-outlined-button>
+        </div>
       </div>
 
       ${this.isDownloading && this.downloadProgress
