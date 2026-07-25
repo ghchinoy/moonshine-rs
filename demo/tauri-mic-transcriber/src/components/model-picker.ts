@@ -4,6 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
+import "@material/web/button/filled-button.js";
+import "@material/web/button/outlined-button.js";
+import "@material/web/progress/linear-progress.js";
+
 export interface DownloadProgress {
   file_name: string;
   downloaded_bytes: number;
@@ -16,26 +20,32 @@ export class MoonshineModelPicker extends LitElement {
   static styles = css`
     :host {
       display: block;
-      background-color: var(--panel-bg, #1e293b);
-      border: 1px solid var(--border-color, #334155);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 20px;
+      background-color: var(--md-sys-color-surface-container, #1e1f25);
+      border: 1px solid var(--md-sys-color-outline-variant, #44464f);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
     }
 
     h2 {
       font-size: 1.1rem;
-      margin-bottom: 12px;
-      color: var(--accent-color, #38bdf8);
+      font-weight: 600;
+      color: var(--md-sys-color-primary, #b0c6ff);
+      margin: 0;
     }
 
     .status-badge {
       display: inline-block;
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: 4px 10px;
+      border-radius: 6px;
       font-size: 0.8rem;
       font-weight: 600;
-      margin-bottom: 12px;
     }
 
     .loaded {
@@ -53,36 +63,25 @@ export class MoonshineModelPicker extends LitElement {
       gap: 12px;
       flex-wrap: wrap;
       align-items: center;
+      margin-top: 8px;
     }
 
-    .progress-bar {
-      margin-top: 12px;
-      width: 100%;
-      height: 8px;
-      background-color: var(--border-color, #334155);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .progress-fill {
-      height: 100%;
-      background-color: var(--accent-color, #38bdf8);
-      width: 0%;
-      transition: width 0.2s;
+    .progress-box {
+      margin-top: 14px;
     }
 
     .progress-text {
       font-size: 0.85rem;
-      color: var(--text-muted, #94a3b8);
+      color: var(--md-sys-color-on-surface-variant, #c5c6d0);
       margin-top: 6px;
     }
 
     .model-path {
       font-family: monospace;
       font-size: 0.85rem;
-      color: var(--text-muted, #94a3b8);
+      color: var(--md-sys-color-on-surface-variant, #c5c6d0);
       word-break: break-all;
-      margin-top: 8px;
+      margin-top: 10px;
     }
   `;
 
@@ -120,15 +119,12 @@ export class MoonshineModelPicker extends LitElement {
     this.statusMessage = "Fetching model dependencies manifest...";
 
     try {
-      // Query dependency manifest for English Tiny model
       const manifestJson = await invoke<string>("get_stt_dependencies", {
         language: "en",
         modelArch: 0, // Tiny
       });
 
       this.statusMessage = "Downloading model files from CDN...";
-
-      // Destination directory in app data
       const destDir = "models/tiny-en/quantized/tiny-en";
 
       const finalPath = await invoke<string>("download_model_files", {
@@ -172,42 +168,41 @@ export class MoonshineModelPicker extends LitElement {
 
   render() {
     return html`
-      <h2>1. Model Selection</h2>
-      <div class="status-badge ${this.isLoaded ? "loaded" : "not-loaded"}">
-        ${this.isLoaded ? "Model Loaded" : "No Model Loaded"}
+      <div class="header">
+        <h2>1. Model Selection</h2>
+        <div class="status-badge ${this.isLoaded ? "loaded" : "not-loaded"}">
+          ${this.isLoaded ? "Model Loaded" : "No Model Loaded"}
+        </div>
       </div>
 
       <div class="actions">
-        <button
-          class="primary-btn"
+        <md-filled-button
           ?disabled=${this.isDownloading}
           @click=${this.selectDirectory}
         >
           📁 Browse Local Directory
-        </button>
+        </md-filled-button>
 
-        <button
-          class="secondary-btn"
+        <md-outlined-button
           ?disabled=${this.isDownloading}
           @click=${this.downloadTinyModel}
         >
           ⬇️ Auto-Download tiny-en Model
-        </button>
+        </md-outlined-button>
       </div>
 
       ${this.isDownloading && this.downloadProgress
         ? html`
-            <div class="progress-bar">
-              <div
-                class="progress-fill"
-                style="width: ${this.downloadProgress.percent}%"
-              ></div>
-            </div>
-            <div class="progress-text">
-              Downloading ${this.downloadProgress.file_name}:
-              ${(this.downloadProgress.downloaded_bytes / 1024 / 1024).toFixed(1)}MB /
-              ${(this.downloadProgress.total_bytes / 1024 / 1024).toFixed(1)}MB
-              (${this.downloadProgress.percent.toFixed(1)}%)
+            <div class="progress-box">
+              <md-linear-progress
+                progress="${this.downloadProgress.percent / 100}"
+              ></md-linear-progress>
+              <div class="progress-text">
+                Downloading ${this.downloadProgress.file_name}:
+                ${(this.downloadProgress.downloaded_bytes / 1024 / 1024).toFixed(1)}MB /
+                ${(this.downloadProgress.total_bytes / 1024 / 1024).toFixed(1)}MB
+                (${this.downloadProgress.percent.toFixed(1)}%)
+              </div>
             </div>
           `
         : ""}

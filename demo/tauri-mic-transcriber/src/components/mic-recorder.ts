@@ -2,43 +2,49 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { invoke } from "@tauri-apps/api/core";
 
+import "@material/web/button/filled-button.js";
+import "@material/web/button/outlined-button.js";
+
 @customElement("moonshine-mic-recorder")
 export class MoonshineMicRecorder extends LitElement {
   static styles = css`
     :host {
-      display: block;
-      background-color: var(--panel-bg, #1e293b);
-      border: 1px solid var(--border-color, #334155);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background-color: var(--md-sys-color-surface-container, #1e1f25);
+      border: 1px solid var(--md-sys-color-outline-variant, #44464f);
+      border-radius: 12px;
+      padding: 20px;
     }
 
     h2 {
       font-size: 1.1rem;
-      margin-bottom: 12px;
-      color: var(--accent-color, #38bdf8);
+      font-weight: 600;
+      color: var(--md-sys-color-primary, #b0c6ff);
+      margin: 0 0 12px 0;
     }
 
     .controls {
       display: flex;
-      align-items: center;
-      gap: 16px;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: auto;
     }
 
     .recording-indicator {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: var(--danger-color, #f87171);
+      color: var(--md-sys-color-error, #f87171);
       font-weight: 600;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
     }
 
     .pulse {
-      width: 12px;
-      height: 12px;
-      background-color: var(--danger-color, #f87171);
+      width: 10px;
+      height: 10px;
+      background-color: var(--md-sys-color-error, #f87171);
       border-radius: 50%;
       animation: pulse-anim 1.5s infinite;
     }
@@ -50,7 +56,7 @@ export class MoonshineMicRecorder extends LitElement {
       }
       70% {
         transform: scale(1);
-        box-shadow: 0 0 0 10px rgba(248, 113, 113, 0);
+        box-shadow: 0 0 0 8px rgba(248, 113, 113, 0);
       }
       100% {
         transform: scale(0.95);
@@ -60,8 +66,8 @@ export class MoonshineMicRecorder extends LitElement {
 
     .status-text {
       font-size: 0.85rem;
-      color: var(--text-muted, #94a3b8);
-      margin-top: 8px;
+      color: var(--md-sys-color-on-surface-variant, #c5c6d0);
+      margin-top: 12px;
     }
   `;
 
@@ -74,6 +80,7 @@ export class MoonshineMicRecorder extends LitElement {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private pcmSamples: number[] = [];
+  private updateInterval: any = null;
 
   async startRecording() {
     if (!this.modelLoaded) {
@@ -108,18 +115,54 @@ export class MoonshineMicRecorder extends LitElement {
       processor.connect(this.audioContext.destination);
 
       this.isRecording = true;
-      this.statusText = "Recording... Speak into your microphone.";
+      this.statusText = "Recording active... Dictation updates live every 2.5s.";
+
+      this.updateInterval = setInterval(() => {
+        if (this.isRecording && this.pcmSamples.length >= 16000) {
+          this.runPartialTranscription();
+        }
+      }, 2500);
     } catch (e: any) {
       this.statusText = `Microphone access error: ${e.message || e}`;
+    }
+  }
+
+  private async runPartialTranscription() {
+    if (this.pcmSamples.length === 0) return;
+
+    try {
+      const sampleRate = 16000;
+      const transcript = await invoke("transcribe_pcm_samples", {
+        pcmSamples: [...this.pcmSamples],
+        sampleRate,
+      });
+
+      const durationSec = (this.pcmSamples.length / sampleRate).toFixed(1);
+      this.statusText = `Recording active (${durationSec}s recorded) — updating...`;
+
+      this.dispatchEvent(
+        new CustomEvent("transcript-result", {
+          detail: { transcript },
+          bubbles: true,
+          composed: true,
+        })
+      );
+    } catch (e: any) {
+      // Partial errors non-fatal
     }
   }
 
   async stopRecording() {
     if (!this.isRecording) return;
 
+    if (this.updateInterval) {
+      clearInterval(this.updateInterval);
+      this.updateInterval = null;
+    }
+
     this.isRecording = false;
     this.isProcessing = true;
-    this.statusText = "Processing recorded audio...";
+    this.statusText = "Finalizing transcription...";
 
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((t) => t.stop());
@@ -133,8 +176,6 @@ export class MoonshineMicRecorder extends LitElement {
 
     const sampleRate = 16000;
     const durationSec = (this.pcmSamples.length / sampleRate).toFixed(1);
-
-    this.statusText = `Transcribing ${durationSec}s of audio...`;
 
     try {
       const transcript = await invoke("transcribe_pcm_samples", {
@@ -160,34 +201,32 @@ export class MoonshineMicRecorder extends LitElement {
 
   render() {
     return html`
-      <h2>2. Live Microphone Dictation</h2>
+      <h2>2. Microphone Dictation</h2>
+
+      <div class="status-text">${this.statusText}</div>
 
       <div class="controls">
         ${!this.isRecording
           ? html`
-              <button
-                class="primary-btn"
+              <md-filled-button
                 ?disabled=${!this.modelLoaded || this.isProcessing}
                 @click=${this.startRecording}
               >
                 🎙️ Start Recording
-              </button>
+              </md-filled-button>
             `
           : html`
-              <button
-                class="danger-btn"
+              <md-outlined-button
                 @click=${this.stopRecording}
               >
                 ⏹️ Stop Recording
-              </button>
+              </md-outlined-button>
               <div class="recording-indicator">
                 <div class="pulse"></div>
-                Recording active...
+                Recording...
               </div>
             `}
       </div>
-
-      <div class="status-text">${this.statusText}</div>
     `;
   }
 }
