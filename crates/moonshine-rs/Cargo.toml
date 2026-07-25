@@ -1,0 +1,22 @@
+[package]
+name = "moonshine-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Idiomatic Rust wrapper for Moonshine Voice speech-to-text"
+
+[dependencies]
+moonshine-sys = { path = "../moonshine-sys" }
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+hound = "3.5"
+
+[[example]]
+name = "transcribe_file"
+path = "../../examples/transcribe_file.rs"
+
+[features]
+default = []
+serde = ["dep:serde"]

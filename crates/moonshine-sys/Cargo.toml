@@ -1,0 +1,12 @@
+[package]
+name = "moonshine-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Low-level FFI bindings to libmoonshine"
+
+[build-dependencies]
+bindgen = "0.69"
+cmake = "0.1"
+
+[dependencies]
