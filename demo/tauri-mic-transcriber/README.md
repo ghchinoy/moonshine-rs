@@ -34,8 +34,7 @@ demo/tauri-mic-transcriber/
 
 - Node.js ≥ 18 and `npm` or `pnpm`
 - Rust toolchain (edition 2021)
-- CMake ≥ 3.22
-- Local clone of [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) with `MOONSHINE_DIR` exported
+- *(Optional)* Set `MOONSHINE_DIR` if you want to build `libmoonshine` from a local custom C++ source tree. Otherwise, prebuilt official release binaries are downloaded automatically.
 
 ### Commands
 
@@ -47,12 +46,10 @@ demo/tauri-mic-transcriber/
 
 2. **Run in development mode**:
    ```bash
-   export MOONSHINE_DIR=/path/to/moonshine
    npx @tauri-apps/cli dev
    ```
 
 3. **Build standalone application**:
    ```bash
-   export MOONSHINE_DIR=/path/to/moonshine
    npx @tauri-apps/cli build
    ```

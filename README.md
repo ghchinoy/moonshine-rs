@@ -60,7 +60,9 @@ Add `moonshine-rs` to your `Cargo.toml`:
 moonshine-rs = "0.1"
 ```
 
-*Note: Building `moonshine-rs` requires a local clone of the [Moonshine C/C++ repository](https://github.com/moonshine-ai/moonshine). Set the `MOONSHINE_DIR` environment variable pointing to the source directory if it is not located in a standard relative sibling directory (`../moonshine`).*
+By default, `moonshine-rs` automatically downloads official prebuilt `libmoonshine` binaries from GitHub Releases during build, requiring zero external C++ checkout setup.
+
+*Note: If you want to compile `libmoonshine` from custom C++ source code, set the `MOONSHINE_DIR` environment variable pointing to your local source directory:*
 
 ```bash
 export MOONSHINE_DIR=/path/to/moonshine
