@@ -11,6 +11,7 @@ categories = ["external-ffi-bindings", "multimedia::audio"]
 
 [build-dependencies]
 bindgen = "0.69"
+cc = "1.0"
 cmake = "0.1"
 flate2 = "1.0"
 tar = "0.4"

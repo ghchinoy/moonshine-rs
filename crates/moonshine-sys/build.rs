@@ -123,6 +123,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MOONSHINE_VERSION");
     println!("cargo:rerun-if-env-changed=DOCS_RS");
     println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=src/stubs.c");
+
+    cc::Build::new()
+        .file("src/stubs.c")
+        .compile("moonshine_stubs");
 
     // docs.rs builds in a network-isolated sandbox with no sibling `moonshine`
     // checkout and no way to set MOONSHINE_DIR. It only needs bindgen output
@@ -212,7 +217,7 @@ fn main() {
         // Fallback: Download prebuilt release assets from GitHub Releases
         println!("cargo:warning=No local moonshine source repository found. Falling back to prebuilt release binary download.");
 
-        let (include_dir, lib_dir) = download_prebuilt_release(&out_dir)
+        let (_include_dir, lib_dir) = download_prebuilt_release(&out_dir)
             .expect("Failed to download prebuilt libmoonshine release");
 
         println!("cargo:rustc-link-search=native={}", lib_dir.display());
@@ -238,10 +243,11 @@ fn main() {
             println!("cargo:rustc-link-lib=static=moonshine");
         }
 
-        // Bindgen against downloaded prebuilt include_dir
+        // Bindgen against vendored headers for complete, stable C API surface
+        let vendor_dir = PathBuf::from("vendor");
         let bindings = bindgen::Builder::default()
             .header("wrapper.h")
-            .clang_arg(format!("-I{}", include_dir.display()))
+            .clang_arg(format!("-I{}", vendor_dir.display()))
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
             .generate()
             .expect("Unable to generate bindings against prebuilt headers");
