@@ -219,6 +219,28 @@ pub struct Transcriber {
 - **Thread Safety**: `Transcriber` implements `Send` and `Sync`. Internal operations use a `Mutex` guard to serialize concurrent transcription calls as required by the C API documentation.
 - **Resource Management**: Implements `Drop` to automatically call `sys::moonshine_free_transcriber(handle)` when going out of scope.
 
+#### Thread Safety & Long-Running Host Integration
+
+`moonshine-rs` is designed specifically for long-running host applications (such as desktop AI agents, daemon services, and GUI shells like Tauri):
+
+1. **`Send` + `Sync` Safe**: `Transcriber` safely implements `Send` and `Sync`. A single instance can be held inside an `Arc<Transcriber>` or `Arc<Mutex<Option<Transcriber>>>` and accessed concurrently across background threads or application state.
+2. **One-Time Model Load**: Loading quantized ONNX weights into memory (`Transcriber::from_files(...)`) is a one-time setup step. Once initialized, the same `Transcriber` handle can transcribe unbounded audio sessions over the host application's lifetime without re-reading model files from disk.
+3. **Async Runtime Integration**: Engine inference calls (`transcribe()`) are synchronous and CPU-bound. When integrating into async runtimes (Tokio, Tauri, Axum, etc.), offload transcription calls using `spawn_blocking` to ensure the main event/UI loop remains non-blocking:
+
+```rust
+use std::sync::Arc;
+use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
+
+// Share initialized transcriber across worker threads or application state
+let transcriber = Arc::new(Transcriber::from_files(model_path, ModelArch::Tiny, None)?);
+
+// Offload CPU inference inside async handlers / background tasks
+let t = transcriber.clone();
+let transcript = tokio::task::spawn_blocking(move || {
+    t.transcribe(&pcm_16k_samples, 16000)
+}).await??;
+```
+
 #### `Transcript` Data Model
 Represents the transcription output:
 
