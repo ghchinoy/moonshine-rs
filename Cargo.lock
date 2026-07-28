@@ -1970,8 +1970,11 @@ dependencies = [
  "moonshine-sys",
  "rubato",
  "serde",
+ "serde_json",
  "symphonia",
  "thiserror 1.0.69",
+ "tokio",
+ "ureq",
 ]
 
 [[package]]

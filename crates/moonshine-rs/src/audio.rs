@@ -1,3 +1,17 @@
+//! Multi-format audio decoding and resampling for transcription input.
+//!
+//! Enabled by the default `audio` feature. Decodes WAV, MP3, AAC, FLAC, OGG,
+//! and M4A via [`symphonia`](https://docs.rs/symphonia) and resamples to the
+//! 16 kHz mono `f32` PCM that Moonshine expects via
+//! [`rubato`](https://docs.rs/rubato).
+//!
+//! Most callers only need [`load_audio_for_transcription`]:
+//!
+//! ```no_run
+//! let pcm = moonshine_rs::audio::load_audio_for_transcription("speech.mp3")?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+
 use std::path::Path;
 use symphonia::core::audio::{AudioBufferRef, Signal};
 use symphonia::core::codecs::DecoderOptions;
@@ -11,17 +25,24 @@ use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolat
 
 use crate::{Error, Result};
 
+/// Decoded PCM audio with its native sample rate and channel count.
 #[derive(Debug, Clone)]
 pub struct AudioDecoded {
+    /// Interleaved `f32` PCM samples in `[-1.0, 1.0]`.
     pub pcm_data: Vec<f32>,
+    /// Source sample rate in Hz.
     pub sample_rate: u32,
+    /// Number of interleaved channels.
     pub channels: u16,
 }
 
+/// Quality/speed tradeoff for [`resample_pcm`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ResampleQuality {
+    /// Faster, linear sinc interpolation. The default.
     #[default]
     Fast,
+    /// Slower, higher-quality cubic sinc interpolation.
     High,
 }
 
@@ -213,7 +234,9 @@ pub fn decode_audio_file(path: impl AsRef<Path>) -> Result<AudioDecoded> {
     })
 }
 
-/// Resamples interleaved PCM audio and mixes down to mono float PCM.
+/// Resamples interleaved PCM audio and mixes it down to mono `f32` PCM.
+///
+/// If `source_rate == target_rate` the samples are only downmixed to mono.
 pub fn resample_pcm(
     pcm: &[f32],
     source_rate: u32,

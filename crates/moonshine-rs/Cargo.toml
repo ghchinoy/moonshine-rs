@@ -18,10 +18,33 @@ rubato = { version = "0.16", optional = true }
 
 [dev-dependencies]
 hound = "3.5"
+ureq = "2.12"
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [[example]]
 name = "transcribe_file"
 path = "examples/transcribe_file.rs"
+
+[[example]]
+name = "download_model"
+path = "examples/download_model.rs"
+
+[[example]]
+name = "word_timestamps"
+path = "examples/word_timestamps.rs"
+
+[[example]]
+name = "speaker_diarization"
+path = "examples/speaker_diarization.rs"
+
+[[example]]
+name = "async_transcribe"
+path = "examples/async_transcribe.rs"
+
+[[example]]
+name = "browse_catalog"
+path = "examples/browse_catalog.rs"
 
 [features]
 default = ["audio"]
