@@ -113,6 +113,27 @@ fn download_prebuilt_release(out_dir: &Path) -> Result<(PathBuf, PathBuf), Strin
         ));
     }
 
+    // The Linux release archives only ship the versioned SONAME
+    // (libonnxruntime.so.1), not the unversioned libonnxruntime.so that the
+    // linker looks for when resolving `-lonnxruntime`
+    // (cargo:rustc-link-lib=dylib=onnxruntime). Create that symlink ourselves
+    // if it's missing, mirroring what a system package (or `ldconfig -l`)
+    // would normally set up for a `-dev` link-time name.
+    if target_os == "linux" {
+        let versioned = lib_dir.join("libonnxruntime.so.1");
+        let unversioned = lib_dir.join("libonnxruntime.so");
+        if versioned.exists() && !unversioned.exists() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink("libonnxruntime.so.1", &unversioned).map_err(|e| {
+                format!(
+                    "Failed to create {} -> libonnxruntime.so.1 symlink: {}",
+                    unversioned.display(),
+                    e
+                )
+            })?;
+        }
+    }
+
     Ok((include_dir, lib_dir))
 }
 
