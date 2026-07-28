@@ -125,9 +125,22 @@ fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=src/stubs.c");
 
-    cc::Build::new()
-        .file("src/stubs.c")
-        .compile("moonshine_stubs");
+    // src/stubs.c provides a weak fallback implementation of
+    // moonshine_get_stt_catalog for prebuilt release archives that predate
+    // that function (anything before the moonshine-ai/moonshine release that
+    // introduced it; the default MOONSHINE_VERSION pin in this file already
+    // postdates it). The weak symbol is emitted with GCC/Clang's
+    // `__attribute__((weak))`, which MSVC does not support on functions (only
+    // on data, via `__declspec(selectany)`), so skip compiling it on Windows.
+    // A user who both targets Windows and overrides MOONSHINE_VERSION to a
+    // pre-catalog release will see a real link error for
+    // moonshine_get_stt_catalog instead of a graceful weak fallback; bumping
+    // MOONSHINE_VERSION (or unsetting the override) resolves it.
+    if env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() != "windows" {
+        cc::Build::new()
+            .file("src/stubs.c")
+            .compile("moonshine_stubs");
+    }
 
     // docs.rs builds in a network-isolated sandbox with no sibling `moonshine`
     // checkout and no way to set MOONSHINE_DIR. It only needs bindgen output
