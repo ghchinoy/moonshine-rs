@@ -24,15 +24,34 @@ Add `moonshine-rs` to your `Cargo.toml`:
 moonshine-rs = "0.1"
 ```
 
-### Build Prerequisite
+### Building
 
-Building `moonshine-rs` currently requires a local clone of the [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) repository. Set the `MOONSHINE_DIR` environment variable pointing to the checkout directory:
+By default, `moonshine-rs` downloads official prebuilt `libmoonshine` binaries
+from [moonshine-ai/moonshine GitHub Releases](https://github.com/moonshine-ai/moonshine/releases)
+during `cargo build` — **no C++ toolchain, CMake, or source checkout required**:
+
+```bash
+cargo add moonshine-rs
+cargo build
+```
+
+Platform notes for the prebuilt path:
+
+- **macOS (arm64)**: `libmoonshine.a` with ONNX Runtime statically merged in — the resulting binary is fully self-contained.
+- **Linux / Windows**: dynamically linked; the `.so` / `onnxruntime.dll` ships alongside your binary.
+
+To build from source instead (fully static Linux/Windows binaries, or a custom
+C++ tree), set `MOONSHINE_DIR` to a local checkout — this requires CMake ≥ 3.22
+and a C++20 compiler:
 
 ```bash
 git clone https://github.com/moonshine-ai/moonshine.git
 export MOONSHINE_DIR=/path/to/moonshine
 cargo build
 ```
+
+See the [User Guide](https://github.com/ghchinoy/moonshine-rs/blob/main/docs/user-guide.md)
+for the full build matrix and troubleshooting.
 
 ## Quick Start Example
 

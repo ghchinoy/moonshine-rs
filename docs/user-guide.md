@@ -34,22 +34,61 @@ moonshine-rs (Cargo Workspace)
     └── src/lib.rs         # Transcriber, Transcript, options, error handling
 ```
 
-### Why Static Linking?
+### Two Build Paths: Prebuilt Download (default) vs Source
 
-Some FFI wrappers use dynamic loading (`dlopen` / `purego`) against prebuilt shared libraries. However, official release assets for `libmoonshine` on macOS and Windows distribute static archives (`.a` / `.lib`). `moonshine-rs` builds `libmoonshine` directly from C++ source via CMake (`-DMOONSHINE_BUILD_SHARED=OFF`) and statically embeds `libonnxruntime.a`. 
+`moonshine-rs` supports two linking strategies, chosen automatically by
+`build.rs`:
 
-Benefits:
-- **Zero runtime `.dylib` / `.so` dependencies**.
+1. **Prebuilt download (default)** — When no local source checkout is found,
+   `build.rs` downloads official prebuilt release binaries from
+   [moonshine-ai/moonshine GitHub Releases](https://github.com/moonshine-ai/moonshine/releases)
+   and links them. This requires no CMake, no C++ toolchain, and no source
+   clone — a plain `cargo add moonshine-rs` works. The linkage characteristics
+   differ per platform:
+
+   | Target | Prebuilt artifact | Linkage | Runtime deps |
+   | :--- | :--- | :--- | :--- |
+   | macOS arm64 | `libmoonshine.a` (ONNX merged in) | static | none (self-contained) |
+   | Linux x86_64 / arm64 | `libmoonshine.so` | dynamic | ships `.so` (rpath set) |
+   | Windows x86_64 | `moonshine.lib` + `onnxruntime.dll` | mixed | `onnxruntime.dll` beside `.exe` |
+
+2. **Source build (opt-in via `MOONSHINE_DIR`)** — When `MOONSHINE_DIR` (or a
+   sibling `moonshine/` checkout) is present, `build.rs` compiles `libmoonshine`
+   from C++ source via CMake (`-DMOONSHINE_BUILD_SHARED=OFF`) and statically
+   embeds `libonnxruntime.a`. This yields a **fully static, self-contained
+   binary on every platform**, at the cost of requiring CMake ≥ 3.22 and a
+   C++20 compiler.
+
+### Why Static Linking Matters
+
+Some FFI wrappers use dynamic loading (`dlopen` / `purego`) against prebuilt
+shared libraries, which invites load-time failures and packaging friction. The
+source build path (and the macOS prebuilt archive) avoid this entirely:
+
+- **Zero runtime `.dylib` / `.so` dependencies** (macOS prebuilt, or any source build).
 - **No `dlopen` failures** or platform distribution blockers.
 - Self-contained, portable Rust binaries.
+
+On Linux/Windows the *prebuilt* path is dynamically linked, so if you need a
+fully static binary on those platforms, prefer the source build.
 
 ---
 
 ## 2. System Requirements
 
-To build `moonshine-sys` from source, your environment requires:
+### Default (prebuilt download)
+
+Using `moonshine-rs` via the default prebuilt path requires only:
 
 - **Rust**: 1.70 or newer (edition 2021).
+- **Network access** at build time (to fetch the prebuilt release tarball once; it is cached in `OUT_DIR` afterward).
+
+No CMake, C++ toolchain, `libclang`, or source checkout is needed.
+
+### Source build (opt-in via `MOONSHINE_DIR`)
+
+Building `moonshine-sys` from C++ source additionally requires:
+
 - **CMake**: 3.22 or newer.
 - **C++ Compiler**:
   - macOS: Xcode Command Line Tools (`clang++` supporting C++20).
@@ -170,9 +209,8 @@ Integrating `moonshine-rs` into desktop application frameworks (such as Tauri v2
    - The final application binary is completely self-contained, avoiding macOS signed bundle dynamic linking failures and `dlopen` runtime errors.
 
 2. **Source Build vs Prebuilt Binary Acquisition**:
-   - The current build strategy requires a local clone of `moonshine-ai/moonshine` (located via `MOONSHINE_DIR` or relative sibling directory search) plus CMake and a C++20 toolchain.
-   - While effective for core framework development, requiring a full C++ monorepo checkout is a heavyweight prerequisite for downstream `cargo add moonshine-rs` users.
-   - **Target Solution**: Future releases will introduce an opt-in `download-binaries` feature in `moonshine-sys/build.rs` (modeled after `ort-sys`). This automatically fetches prebuilt release tarballs (e.g. `moonshine-voice-macos-arm64.tar.gz`) from `moonshine-ai/moonshine` GitHub Releases and links directly, unblocking standard `cargo add` workflows while keeping the `MOONSHINE_DIR` source build as a fallback.
+   - Requiring a full C++ monorepo checkout plus CMake and a C++20 toolchain is a heavyweight prerequisite for downstream `cargo add moonshine-rs` users.
+   - **Implemented**: `moonshine-sys/build.rs` now defaults to downloading prebuilt release tarballs (e.g. `moonshine-voice-macos-arm64.tar.gz`) from `moonshine-ai/moonshine` GitHub Releases and links them directly, unblocking standard `cargo add` workflows. The `MOONSHINE_DIR` source build remains available as an opt-in for fully-static Linux/Windows binaries or custom C++ trees. The upstream release tag is selectable via the `MOONSHINE_VERSION` environment variable.
 
 3. **Asset Separation**:
    - Heavy ONNX model weights (`.ort` files, ~44MB–240MB) should be fetched at runtime via the built-in manifest API or cached in standard system user cache directories (`~/Library/Caches/...` or `~/.cache/...`), rather than checked into git repositories.
@@ -405,8 +443,9 @@ When publishing updated versions of the workspace to [crates.io](https://crates.
 - ✅ C API metadata and dependency JSON queries (`get_stt_dependencies`, `get_stt_catalog`).
 - ✅ Static CMake compilation & `bindgen` FFI.
 
+- ✅ Prebuilt binary download as the default build path (automated GitHub Release vendor downloads).
+
 ### Future Roadmap
 - ⏳ Real-time streaming API (`moonshine_create_stream`, `moonshine_transcribe_add_audio_to_stream`).
 - ⏳ Text-to-Speech (TTS) & Grapheme-to-Phoneme (G2P) bindings.
 - ⏳ In-memory model asset loading (`moonshine_load_transcriber_from_memory_files`).
-- ⏳ Pre-packaged crates.io release with automated vendor downloads.

@@ -4,25 +4,26 @@ use std::path::PathBuf;
 use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let home = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-
-    let default_model = PathBuf::from(&home).join(
-        "Library/Caches/moonshine_voice/download.moonshine.ai/model/tiny-en/quantized/tiny-en",
-    );
-    let default_audio = PathBuf::from(&home).join("projects/github/moonshine/test-assets/two_cities_16k.wav");
-
     let args: Vec<String> = env::args().collect();
-    let model_dir = if args.len() > 1 {
-        PathBuf::from(&args[1])
-    } else {
-        default_model
-    };
 
-    let audio_file = if args.len() > 2 {
-        PathBuf::from(&args[2])
-    } else {
-        default_audio
-    };
+    if args.len() < 3 {
+        eprintln!("Usage: {} <MODEL_DIR> <AUDIO_FILE>", args[0]);
+        eprintln!();
+        eprintln!("  MODEL_DIR   Directory containing a tiny-en model");
+        eprintln!("              (encoder_model.ort, decoder_model_merged.ort, tokenizer.bin).");
+        eprintln!("              See the User Guide for how to download models, or run the");
+        eprintln!("              `download_model` example to fetch tiny-en automatically.");
+        eprintln!("  AUDIO_FILE  Any audio file (WAV, MP3, AAC, FLAC, OGG, M4A).");
+        eprintln!();
+        eprintln!("Example:");
+        eprintln!(
+            "  cargo run --example transcribe_file -p moonshine-rs -- ./models/tiny-en ./speech.wav"
+        );
+        std::process::exit(2);
+    }
+
+    let model_dir = PathBuf::from(&args[1]);
+    let audio_file = PathBuf::from(&args[2]);
 
     println!("Moonshine version: {}", moonshine_rs::get_version());
     println!("Loading model from: {}", model_dir.display());

@@ -8,6 +8,35 @@ Idiomatic Rust bindings for [Moonshine Voice](https://github.com/moonshine-ai/mo
 
 `moonshine-rs` provides high-level, memory-safe Rust bindings to the official [`libmoonshine`](https://github.com/moonshine-ai/moonshine) C API. It compiles the Moonshine C/C++ core directly from source and statically links ONNX Runtime, eliminating `dlopen` runtime shared-library dependencies and avoiding cross-platform load issues.
 
+## Quick Start
+
+```bash
+# 1. Add the crate (prebuilt libmoonshine is fetched at build time — no C++ toolchain)
+cargo add moonshine-rs
+
+# 2. Grab the tiny-en model (uses the built-in manifest API)
+cargo run --example download_model -p moonshine-rs -- ./models/tiny-en
+
+# 3. Transcribe any audio file (WAV/MP3/AAC/FLAC/OGG/M4A)
+cargo run --example transcribe_file -p moonshine-rs -- ./models/tiny-en ./speech.wav
+```
+
+Minimal library usage:
+
+```rust
+use moonshine_rs::audio::load_audio_for_transcription;
+use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
+
+let pcm = load_audio_for_transcription("speech.wav")?;
+let t = Transcriber::from_files("./models/tiny-en", ModelArch::Tiny, None)?;
+println!("{}", t.transcribe(&pcm, 16_000)?.text());
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Browse the [`examples/`](crates/moonshine-rs/examples) directory for word-level
+timestamps, speaker diarization, async/`spawn_blocking`, model downloading, and
+catalog browsing.
+
 ## Table of Contents
 
 - [Features](#features)
@@ -60,40 +89,71 @@ Add `moonshine-rs` to your `Cargo.toml`:
 moonshine-rs = "0.1"
 ```
 
-By default, `moonshine-rs` automatically downloads official prebuilt `libmoonshine` binaries from GitHub Releases during build, requiring zero external C++ checkout setup.
+### Default: prebuilt binaries (no C++ toolchain required)
 
-*Note: If you want to compile `libmoonshine` from custom C++ source code, set the `MOONSHINE_DIR` environment variable pointing to your local source directory:*
+By default, `moonshine-rs` downloads official prebuilt `libmoonshine` release
+binaries from the [moonshine-ai/moonshine GitHub Releases](https://github.com/moonshine-ai/moonshine/releases)
+during `cargo build`. There is **no need to clone the C++ source, install CMake,
+or set any environment variables** — `cargo add moonshine-rs` and build.
+
+The prebuilt archive that gets linked depends on your target platform:
+
+| Target | Linked artifact | Runtime dependencies |
+| :--- | :--- | :--- |
+| **macOS (arm64)** | `libmoonshine.a` (ONNX Runtime statically merged in) | **None** — fully self-contained binary |
+| **Linux (x86_64 / arm64)** | `libmoonshine.so` | Ships the `.so`; `build.rs` sets an `rpath` to it |
+| **Windows (x86_64)** | `moonshine.lib` + `onnxruntime.dll` | `onnxruntime.dll` must sit next to your `.exe` |
+
+> On macOS the resulting binary is completely self-contained. On Linux and
+> Windows the prebuilt path is *dynamically* linked, so the accompanying
+> `.so` / `.dll` travels with your application. If you need a fully static
+> binary on those platforms, use the source build below.
+
+You can pin a specific upstream release with the `MOONSHINE_VERSION` environment
+variable (defaults to the version this crate was tested against):
 
 ```bash
+MOONSHINE_VERSION=v0.1.0 cargo build
+```
+
+### Advanced: build from source (fully static, all platforms)
+
+If you want to compile `libmoonshine` from C++ source — for a fully static
+Linux/Windows binary, a custom build, or an untagged upstream revision — set
+`MOONSHINE_DIR` to a local checkout. This path requires CMake ≥ 3.22 and a
+C++20 compiler (see [Local Development Setup](#local-development-setup)):
+
+```bash
+git clone https://github.com/moonshine-ai/moonshine.git
 export MOONSHINE_DIR=/path/to/moonshine
 cargo build
 ```
 
+When `MOONSHINE_DIR` is set (or a sibling `moonshine/` checkout is found),
+`build.rs` compiles from source and ignores the prebuilt download path.
+
 ## Usage Example
 
-The following example loads the quantized `tiny-en` model and transcribes a 16kHz WAV audio file:
+The following example transcribes any audio file (MP3, WAV, AAC, FLAC, OGG,
+M4A). The built-in `audio` feature (on by default) decodes and resamples it to
+16 kHz mono for you — no extra dependencies needed:
 
 ```rust
 use std::path::Path;
-use hound::WavReader;
+use moonshine_rs::audio::load_audio_for_transcription;
 use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Read PCM audio samples (16kHz float or int PCM)
-    let mut reader = WavReader::open("audio.wav")?;
-    let spec = reader.spec();
-    let pcm_data: Vec<f32> = reader
-        .samples::<i16>()
-        .map(|s| s.unwrap() as f32 / 32768.0)
-        .collect();
+    // 1. Decode + resample any supported audio file to 16kHz mono PCM
+    let pcm_data = load_audio_for_transcription("audio.mp3")?;
 
     // 2. Load the transcriber with model files
     let model_dir = Path::new("path/to/tiny-en/quantized/tiny-en");
     let options = TranscriberOptions::new();
     let transcriber = Transcriber::from_files(model_dir, ModelArch::Tiny, Some(&options))?;
 
-    // 3. Transcribe audio
-    let transcript = transcriber.transcribe(&pcm_data, spec.sample_rate)?;
+    // 3. Transcribe (audio helper always produces 16kHz mono)
+    let transcript = transcriber.transcribe(&pcm_data, 16_000)?;
 
     // 4. Print transcript lines
     for line in &transcript.lines {
@@ -109,6 +169,34 @@ Run the included example directly:
 ```bash
 cargo run --example transcribe_file -p moonshine-rs -- /path/to/model_dir /path/to/audio.wav
 ```
+
+<details>
+<summary>Already have raw 16 kHz mono PCM? Skip the audio helper.</summary>
+
+If you disable the default `audio` feature, or already have decoded PCM samples
+(e.g. from a live microphone), pass them straight to `transcribe`. You are
+responsible for supplying **16 kHz mono `f32`** samples in `[-1.0, 1.0]`:
+
+```rust,ignore
+// `pcm_data: Vec<f32>` at 16kHz mono, sourced however you like.
+let transcript = transcriber.transcribe(&pcm_data, 16_000)?;
+```
+
+</details>
+
+### Examples
+
+All examples live in [`crates/moonshine-rs/examples`](crates/moonshine-rs/examples)
+and run with `cargo run --example <name> -p moonshine-rs -- <args>`:
+
+| I want to… | Example | Args |
+| :--- | :--- | :--- |
+| Download a model | `download_model` | `<OUTPUT_DIR> [LANGUAGE]` |
+| Transcribe a file | `transcribe_file` | `<MODEL_DIR> <AUDIO_FILE>` |
+| Get word-level timestamps | `word_timestamps` | `<MODEL_DIR> <AUDIO_FILE>` |
+| Identify speakers (diarization) | `speaker_diarization` | `<MODEL_DIR> <AUDIO_FILE>` |
+| Transcribe from an async runtime | `async_transcribe` | `<MODEL_DIR> <AUDIO_FILE>` |
+| List available models/languages | `browse_catalog` | *(none)* |
 
 ## Tauri v2 + Lit Demo App
 
@@ -127,7 +215,11 @@ npx @tauri-apps/cli dev
 
 ## Local Development Setup
 
-### Prerequisites
+> This section covers building `moonshine-rs` **from C++ source** (the source
+> build path). If you just want to *use* the crate, see [Installation](#installation) —
+> the default prebuilt-download path needs none of these prerequisites.
+
+### Prerequisites (source build only)
 
 - Rust toolchain (edition 2021)
 - CMake ≥ 3.22
@@ -156,9 +248,42 @@ cargo build --workspace
 cargo test --workspace
 ```
 
+## Platform Support & Roadmap
+
+Prebuilt-binary support (the default build path) by target:
+
+| Target | Prebuilt | Linkage | Self-contained binary |
+| :--- | :---: | :--- | :---: |
+| macOS arm64 | ✅ | static (ONNX merged) | ✅ |
+| Linux x86_64 / arm64 | ✅ | dynamic (`.so`) | ⚠️ ships `.so` |
+| Windows x86_64 | ✅ | mixed (`onnxruntime.dll`) | ⚠️ ships `.dll` |
+
+For a fully static binary on Linux/Windows, use the source build (`MOONSHINE_DIR`).
+
+Feature status:
+
+- ✅ Batch (non-streaming) transcription
+- ✅ Multi-format audio decode + 16 kHz resample (`audio` feature)
+- ✅ Model catalog / dependency manifest queries
+- ✅ Speaker identification (diarization)
+- ⏳ Word-level timestamps (requires attention-decoder model)
+- ⏳ Real-time streaming API — tracked in the project issue tracker
+- ⏳ Text-to-Speech (TTS) & Grapheme-to-Phoneme (G2P)
+
+See the [User Guide roadmap](docs/user-guide.md#9-current-scope--roadmap) for details.
+
 ## Contributing
 
 `moonshine-rs` is in early development. For major changes or feature requests, please open an issue first before submitting a pull request.
+
+Common tasks are available via [`just`](https://github.com/casey/just):
+
+```bash
+just            # list recipes
+just download   # fetch the tiny-en model into ./models/tiny-en
+just transcribe ./speech.wav
+just test       # run tests + doctests
+```
 
 ## License
 
