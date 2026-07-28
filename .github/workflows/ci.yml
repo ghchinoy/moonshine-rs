@@ -21,9 +21,12 @@ jobs:
 
       - name: Install Tauri Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
