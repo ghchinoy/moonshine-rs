@@ -319,11 +319,74 @@ pub fn get_stt_dependencies(
     arch: Option<ModelArch>,
     include_spelling: bool,
 ) -> Result<String> {
+    get_stt_dependencies_with_options(
+        language,
+        &SttDependenciesOptions {
+            arch,
+            include_spelling,
+            ..Default::default()
+        },
+    )
+}
+
+/// Extended options for [`get_stt_dependencies_with_options`], covering the
+/// full set of dependency-resolution knobs supported by
+/// `moonshine_get_stt_dependencies` (added upstream alongside
+/// `word_timestamps` and the `spelling` / `spelling_model_path` aliases).
+#[derive(Debug, Default, Clone)]
+pub struct SttDependenciesOptions {
+    pub arch: Option<ModelArch>,
+    /// Include the spelling model's files as an extra dependency group.
+    /// Equivalent to passing `include_spelling` (alias: `spelling`) to the C
+    /// API.
+    pub include_spelling: bool,
+    /// Include the optional attention decoder needed to produce word-level
+    /// timestamps. This roughly doubles the download size for models that
+    /// publish it, so it defaults to `false`.
+    pub word_timestamps: bool,
+    /// Resolve dependencies for a specific spelling model path instead of
+    /// the language's default spelling model. Implies `include_spelling`.
+    pub spelling_model_path: Option<String>,
+}
+
+impl SttDependenciesOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_arch(mut self, arch: ModelArch) -> Self {
+        self.arch = Some(arch);
+        self
+    }
+
+    pub fn with_include_spelling(mut self, include_spelling: bool) -> Self {
+        self.include_spelling = include_spelling;
+        self
+    }
+
+    pub fn with_word_timestamps(mut self, word_timestamps: bool) -> Self {
+        self.word_timestamps = word_timestamps;
+        self
+    }
+
+    pub fn with_spelling_model_path(mut self, path: impl Into<String>) -> Self {
+        self.spelling_model_path = Some(path.into());
+        self
+    }
+}
+
+/// Like [`get_stt_dependencies`], but exposes the full set of options
+/// recognized by `moonshine_get_stt_dependencies`, including
+/// `word_timestamps` and `spelling_model_path`.
+pub fn get_stt_dependencies_with_options(
+    language: &str,
+    options: &SttDependenciesOptions,
+) -> Result<String> {
     let c_lang = CString::new(language)?;
     let mut opts = Vec::new();
     let mut strings = Vec::new();
 
-    if let Some(a) = arch {
+    if let Some(a) = options.arch {
         let ck = CString::new("model_arch")?;
         let cv = CString::new(a.as_u32().to_string())?;
         opts.push(sys::moonshine_option_t {
@@ -334,9 +397,31 @@ pub fn get_stt_dependencies(
         strings.push(cv);
     }
 
-    if include_spelling {
+    if options.include_spelling {
         let ck = CString::new("include_spelling")?;
         let cv = CString::new("true")?;
+        opts.push(sys::moonshine_option_t {
+            name: ck.as_ptr(),
+            value: cv.as_ptr(),
+        });
+        strings.push(ck);
+        strings.push(cv);
+    }
+
+    if options.word_timestamps {
+        let ck = CString::new("word_timestamps")?;
+        let cv = CString::new("true")?;
+        opts.push(sys::moonshine_option_t {
+            name: ck.as_ptr(),
+            value: cv.as_ptr(),
+        });
+        strings.push(ck);
+        strings.push(cv);
+    }
+
+    if let Some(path) = &options.spelling_model_path {
+        let ck = CString::new("spelling_model_path")?;
+        let cv = CString::new(path.as_str())?;
         opts.push(sys::moonshine_option_t {
             name: ck.as_ptr(),
             value: cv.as_ptr(),
@@ -422,6 +507,15 @@ mod tests {
         let deps = get_stt_dependencies("en", Some(ModelArch::Tiny), false).unwrap();
         assert!(deps.contains("encoder_model.ort"));
         assert!(deps.contains("decoder_model_merged.ort"));
+    }
+
+    #[test]
+    fn test_stt_dependencies_with_options_word_timestamps() {
+        let opts = SttDependenciesOptions::new()
+            .with_arch(ModelArch::Tiny)
+            .with_word_timestamps(true);
+        let deps = get_stt_dependencies_with_options("en", &opts).unwrap();
+        assert!(deps.contains("encoder_model.ort"));
     }
 
     #[test]

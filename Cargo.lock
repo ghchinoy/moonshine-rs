@@ -1964,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "moonshine-rs"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "hound",
  "moonshine-sys",
@@ -1976,7 +1976,7 @@ dependencies = [
 
 [[package]]
 name = "moonshine-sys"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bindgen",
  "cc",

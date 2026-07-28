@@ -90,9 +90,18 @@ extern "C" {
    You should pass this version to moonshine_load_transcriber so that newer
    versions of the library can emulate any older behavior that has changed.
    The format is MAJOR * 10000 + MINOR * 100 + PATCH.
-   For example, version 2.0.0 would be 20000.
-   For example, version 2.3.7 would be 20307.                                */
-#define MOONSHINE_HEADER_VERSION (20000)
+   For example, version 3.0.0 would be 30000.
+   For example, version 3.2.7 would be 30207.                                */
+#define MOONSHINE_HEADER_VERSION (30000)
+
+/* The first header version that no longer supports
+   moonshine_load_transcriber_from_memory. A client passing this version or
+   newer gets MOONSHINE_ERROR_INVALID_ARGUMENT back from that call, along with
+   a logged explanation, and should use
+   moonshine_load_transcriber_from_memory_files instead. Clients built against
+   an earlier header keep the old behavior, so existing binaries are
+   unaffected.                                                               */
+#define MOONSHINE_FROM_MEMORY_REMOVED_VERSION (30000)
 
 /* Supported model architectures.                                            */
 #define MOONSHINE_MODEL_ARCH_TINY (0)
@@ -377,6 +386,12 @@ MOONSHINE_EXPORT int32_t moonshine_load_transcriber_from_files(
 
 /* **DEPRECATED** Use moonshine_load_transcriber_from_memory_files instead.
    This function is deprecated and will be removed in a future version.
+
+   Callers that pass a `moonshine_version` of
+   MOONSHINE_FROM_MEMORY_REMOVED_VERSION or newer are refused: the call logs an
+   explanation and returns MOONSHINE_ERROR_INVALID_ARGUMENT without loading
+   anything. Only clients built against an earlier header, which pass that
+   earlier version here, can still use it.
 
    Loads models from memory. The `encoder_model_data`, `decoder_model_data` and
    `tokenizer_data` parameters are the data arrays for the models in binary
@@ -704,9 +719,9 @@ MOONSHINE_EXPORT int32_t moonshine_create_intent_recognizer(
    need to remain valid for the duration of this call.
 
    `model_arch` should be one of the MOONSHINE_EMBEDDING_MODEL_ARCH_* constants.
-   `model_variant` selects the variant ("fp32", "fp16", "q8", "q4", "q4f16"; NULL
-   defaults to "q4") and is only used to pick the model file when the filename
-   keys do not make it unambiguous.
+   `model_variant` selects the variant ("fp32", "fp16", "q8", "q4", "q4f16";
+   NULL defaults to "q4") and is only used to pick the model file when the
+   filename keys do not make it unambiguous.
 
    Returns a non-negative handle on success, or a negative error code on
    failure.
@@ -808,6 +823,51 @@ MOONSHINE_EXPORT void moonshine_free_intent_embedding(float *embedding);
 MOONSHINE_EXPORT int32_t moonshine_calculate_embedding_distance(
     int32_t intent_recognizer_handle, const float *embedding_a,
     const float *embedding_b, uint64_t embedding_size, float *out_similarity);
+
+/* ------------------------------ SPEECH CLIPS --------------------------- */
+
+/* A short window of mostly-speech audio pulled out of a longer recording,
+   returned by moonshine_extract_speech_clip. */
+struct moonshine_speech_clip_t {
+  /* 16 kHz mono PCM. NULL unless ``is_complete`` is non-zero. Allocated with
+     malloc; release with moonshine_free_buffer. */
+  float *audio_data;
+  uint64_t audio_length;
+  /* Where the window starts in the input recording, in seconds. */
+  float start_time;
+  /* How much of the window is speech, in seconds. Useful for showing progress
+     while the caller is still recording. */
+  float speech_duration;
+  /* Non-zero once a window with enough speech in it was found. */
+  int32_t is_complete;
+};
+
+/* Finds the best short window of speech in a recording, for use as the
+   reference clip in zero-shot voice cloning.
+
+   Runs the built-in voice-activity detector (no model files or downloads
+   required) over ``audio_data``, slides a window of ``clip_duration_seconds``
+   across the result, and returns the window with the most speech in it. If no
+   window contains at least ``minimum_speech_seconds`` of speech,
+   ``out_clip->is_complete`` is zero and no audio is returned; the caller should
+   record more and call again. This makes the function safe to call repeatedly
+   on a growing buffer, which is how the streaming voice-capture APIs in the
+   language bindings are built.
+
+   The returned clip is always 16 kHz mono regardless of ``sample_rate``.
+
+   Recognised ``options``:
+     ``clip_duration_seconds``  length of the window (default 4).
+     ``minimum_speech_seconds`` speech required in it (default 2).
+     ``vad_threshold``          speech probability threshold (default 0.5).
+
+   Returns zero on success, or a non-zero error code on failure. The error code
+   can be converted to a human-readable string using moonshine_error_to_string.
+*/
+MOONSHINE_EXPORT int32_t moonshine_extract_speech_clip(
+    const float *audio_data, uint64_t audio_length, int32_t sample_rate,
+    const struct moonshine_option_t *options, uint64_t options_count,
+    struct moonshine_speech_clip_t *out_clip);
 
 /* ------------------------------ TEXT TO SPEECH ------------------------- */
 
@@ -953,20 +1013,30 @@ MOONSHINE_EXPORT int32_t moonshine_get_tts_voices(
    ``language`` is a language code (for example ``"en"``) or English name (for
    example ``"English"``); it must not be empty.
 
-   ``options`` / ``options_count`` recognize:
+   ``options`` / ``options_count`` accept the same option list you would pass to
+   moonshine_load_transcriber_from_files, so a binding can build one set of
+   options and use it both to resolve this manifest and to load the model.
+   Options that do not change which files are needed are ignored; the ones that
+   do are honored:
      - ``model_arch``: one of the MOONSHINE_MODEL_ARCH_* constants as a decimal
        string. When omitted, the default (first) model for the language is
        used.
-     - ``include_spelling`` (bool): when true and a spelling model is published
-       for the language, its files are appended as an extra group. Defaults to
-       false.
+     - ``word_timestamps`` (bool): when true, the optional attention decoder
+       (``decoder_kv_with_attention.ort`` for streaming, or
+       ``decoder_with_attention.ort`` for non-streaming) is included for
+       languages that publish it. This file is only needed to produce word-level
+       timestamps and roughly doubles the download, so it defaults to false.
+     - ``include_spelling`` / ``spelling`` (bool), or ``spelling_model_path``
+       (non-empty path): when set and a spelling model is published for the
+       language, its files are appended as an extra group. Defaults to false.
    Other options are ignored.
 
    On success, writes a NUL-terminated JSON object to
    ``*out_dependencies_json`` and returns ``MOONSHINE_ERROR_NONE``. The shape
    is:
-     ``{"groups":[{"base_url":"https://download.moonshine.ai/model/tiny-en/quantized/tiny-en","files":[{"name":"encoder_model.ort","url":"https://download.moonshine.ai/model/tiny-en/quantized/tiny-en/encoder_model.ort","size":12345,"checksum":"abc==","checksum_type":"crc32c"}, ...]}]}``
-   Each entry in ``files`` is an object with ``name`` (canonical filename),
+     ``{"groups":[{"base_url":"https://download.moonshine.ai/model/tiny-en/quantized/tiny-en","files":[{"name":"encoder_model.ort","url":"https://download.moonshine.ai/model/tiny-en/quantized/tiny-en/encoder_model.ort","size":12345,"checksum":"abc==","checksum_type":"crc32c"},
+   ...]}]}`` Each entry in ``files`` is an object with ``name`` (canonical
+   filename),
    ``url`` (fully-qualified download URL, i.e. ``base_url + "/" + name``),
    ``size`` (bytes, or null when unknown), ``checksum`` (base64 digest, or ""),
    and ``checksum_type`` (e.g. "crc32c", or ""). A model is a single group,
@@ -1005,15 +1075,18 @@ MOONSHINE_EXPORT int32_t moonshine_get_intent_dependencies(
 /* Returns the full speech-to-text model catalog as a JSON object, so bindings
    can build language/model pickers and resolve defaults without their own copy
    of the tables. The shape is:
-     ``{"languages":[{"code":"en","english_name":"English","models":[{"model_arch":9,"download_url":"https://...","is_default":true}, ...]}, ...]}``
-   The buffer is allocated with ``malloc``; release it with ``free``. Returns
+     ``{"languages":[{"code":"en","english_name":"English","models":[{"model_arch":9,"download_url":"https://...","is_default":true},
+   ...]}, ...]}`` The buffer is allocated with ``malloc``; release it with
+   ``free``. Returns
    ``MOONSHINE_ERROR_NONE`` on success. */
 MOONSHINE_EXPORT int32_t moonshine_get_stt_catalog(char **out_catalog_json);
 
 /* Returns the full intent-recognition embedding model catalog as a JSON object.
    The shape is:
-     ``{"models":[{"name":"embeddinggemma-300m","english_name":"Embedding Gemma 300M","download_url":"https://...","variants":["q4", ...],"default_variant":"q4"}]}``
-   The buffer is allocated with ``malloc``; release it with ``free``. Returns
+     ``{"models":[{"name":"embeddinggemma-300m","english_name":"Embedding Gemma
+   300M","download_url":"https://...","variants":["q4",
+   ...],"default_variant":"q4"}]}`` The buffer is allocated with ``malloc``;
+   release it with ``free``. Returns
    ``MOONSHINE_ERROR_NONE`` on success. */
 MOONSHINE_EXPORT int32_t
 moonshine_get_embedding_catalog(char **out_catalog_json);
