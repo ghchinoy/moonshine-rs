@@ -19,25 +19,35 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 
-use moonshine_rs::{get_stt_dependencies, ModelArch};
+use moonshine_rs::{get_stt_dependencies_with_options, ModelArch, SttDependenciesOptions};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <OUTPUT_DIR> [LANGUAGE]", args[0]);
+        eprintln!("Usage: {} <OUTPUT_DIR> [LANGUAGE] [ARCH]", args[0]);
         eprintln!();
-        eprintln!("  OUTPUT_DIR  Directory to download the tiny-en model files into.");
+        eprintln!("  OUTPUT_DIR  Directory to download the model files into.");
         eprintln!("  LANGUAGE    STT language code (default: en).");
+        eprintln!("  ARCH        Model architecture (tiny, tiny-streaming, base, base-streaming; default: tiny).");
         std::process::exit(2);
     }
 
     let out_dir = PathBuf::from(&args[1]);
     let language = args.get(2).map(String::as_str).unwrap_or("en");
+    let arch = match args.get(3).map(String::as_str).unwrap_or("tiny") {
+        "tiny-streaming" | "tinystreaming" => ModelArch::TinyStreaming,
+        "base" => ModelArch::Base,
+        "base-streaming" | "basestreaming" => ModelArch::BaseStreaming,
+        _ => ModelArch::Tiny,
+    };
 
     fs::create_dir_all(&out_dir)?;
 
     // 1. Resolve the download manifest (URLs, sizes, checksums) in native Rust.
-    let manifest_json = get_stt_dependencies(language, Some(ModelArch::Tiny), false)?;
+    let manifest_json = get_stt_dependencies_with_options(
+        language,
+        &SttDependenciesOptions::new().with_arch(arch),
+    )?;
     let manifest: serde_json::Value = serde_json::from_str(&manifest_json)?;
 
     let groups = manifest["groups"]

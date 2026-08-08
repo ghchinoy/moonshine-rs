@@ -236,6 +236,16 @@ pub struct TranscriptLine {
     pub id: u64,
     /// Whether the line is finalized (relevant for streaming).
     pub is_complete: bool,
+    /// Streaming-only: Whether this line was updated since the last stream poll.
+    pub is_updated: bool,
+    /// Streaming-only: Whether this line was newly added since the last stream poll.
+    pub is_new: bool,
+    /// Streaming-only: Whether the text of this line has changed since the last stream poll.
+    pub has_text_changed: bool,
+    /// Streaming-only: Whether speaker spans were revised since the last stream poll.
+    pub have_speakers_changed: bool,
+    /// Streaming-only: Last transcription processing latency in milliseconds.
+    pub last_transcription_latency_ms: u32,
     /// Per-word timing/confidence, if available. See [`TranscriptWord`].
     pub words: Vec<TranscriptWord>,
     /// Speaker attribution spans, if diarization was enabled.
@@ -482,75 +492,235 @@ impl Transcriber {
             });
         }
 
-        if out_transcript.is_null() {
-            return Ok(Transcript::default());
+        Ok(copy_transcript(out_transcript))
+    }
+
+    /// Creates and starts a new streaming session [`TranscriberStream`].
+    ///
+    /// Multiple concurrent streams can be spawned from a single `Transcriber`.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if creating or starting the native stream fails.
+    pub fn create_stream(&self) -> Result<TranscriberStream<'_>> {
+        let stream_handle = unsafe { sys::moonshine_create_stream(self.handle, 0) };
+        if stream_handle < 0 {
+            return Err(Error::ApiError {
+                code: stream_handle,
+                message: error_string(stream_handle),
+            });
         }
 
-        let mut lines = Vec::new();
-        unsafe {
-            let t = &*out_transcript;
-            if t.line_count > 0 && !t.lines.is_null() {
-                let raw_lines = std::slice::from_raw_parts(t.lines, t.line_count as usize);
-                for raw_line in raw_lines {
-                    let text = if raw_line.text.is_null() {
-                        String::new()
-                    } else {
-                        CStr::from_ptr(raw_line.text).to_string_lossy().into_owned()
-                    };
+        let ret_start = unsafe { sys::moonshine_start_stream(self.handle, stream_handle) };
+        if ret_start != 0 {
+            let _ = unsafe { sys::moonshine_free_stream(self.handle, stream_handle) };
+            return Err(Error::ApiError {
+                code: ret_start,
+                message: error_string(ret_start),
+            });
+        }
 
-                    let mut words = Vec::new();
-                    if raw_line.word_count > 0 && !raw_line.words.is_null() {
-                        let raw_words = std::slice::from_raw_parts(
-                            raw_line.words,
-                            raw_line.word_count as usize,
-                        );
-                        for rw in raw_words {
-                            let w_text = if rw.text.is_null() {
-                                String::new()
-                            } else {
-                                CStr::from_ptr(rw.text).to_string_lossy().into_owned()
-                            };
-                            words.push(TranscriptWord {
-                                text: w_text,
-                                start: rw.start,
-                                end: rw.end,
-                                confidence: rw.confidence,
-                            });
-                        }
-                    }
+        Ok(TranscriberStream {
+            transcriber: self,
+            stream_handle,
+            closed: false,
+        })
+    }
+}
 
-                    let mut speaker_spans = Vec::new();
-                    if raw_line.speaker_span_count > 0 && !raw_line.speaker_spans.is_null() {
-                        let raw_spans = std::slice::from_raw_parts(
-                            raw_line.speaker_spans,
-                            raw_line.speaker_span_count as usize,
-                        );
-                        for rs in raw_spans {
-                            speaker_spans.push(SpeakerSpan {
-                                start_time: rs.start_time,
-                                duration: rs.duration,
-                                speaker_id: rs.speaker_id,
-                                speaker_index: rs.speaker_index,
-                                start_char: rs.start_char,
-                                end_char: rs.end_char,
-                            });
-                        }
-                    }
+/// An active streaming session for incremental, real-time transcription.
+///
+/// Created via [`Transcriber::create_stream`]. Audio chunks can be added
+/// frequently via [`add_audio`](TranscriberStream::add_audio). Call [`poll`](TranscriberStream::poll)
+/// when updated transcript lines are desired, or [`finalize`](TranscriberStream::finalize)
+/// at the end of a recording session.
+pub struct TranscriberStream<'a> {
+    transcriber: &'a Transcriber,
+    stream_handle: i32,
+    closed: bool,
+}
 
-                    lines.push(TranscriptLine {
-                        text,
-                        start_time: raw_line.start_time,
-                        duration: raw_line.duration,
-                        id: raw_line.id,
-                        is_complete: raw_line.is_complete != 0,
-                        words,
-                        speaker_spans,
-                    });
-                }
+unsafe impl<'a> Send for TranscriberStream<'a> {}
+unsafe impl<'a> Sync for TranscriberStream<'a> {}
+
+impl<'a> TranscriberStream<'a> {
+    /// Returns the underlying native stream handle.
+    pub fn handle(&self) -> i32 {
+        self.stream_handle
+    }
+
+    /// Appends newly-captured PCM audio samples (`f32` in `[-1.0, 1.0]`) to the stream buffer.
+    ///
+    /// This call is lightweight and cheap to call frequently (e.g. directly from audio callbacks).
+    /// It buffers the audio without running full transcription model evaluation.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if adding audio fails or the stream is closed.
+    pub fn add_audio(&mut self, pcm_data: &[f32], sample_rate: u32) -> Result<()> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let mut audio_vec = pcm_data.to_vec();
+        let audio_ptr = if audio_vec.is_empty() {
+            ptr::null()
+        } else {
+            audio_vec.as_mut_ptr()
+        };
+
+        let ret = unsafe {
+            sys::moonshine_transcribe_add_audio_to_stream(
+                self.transcriber.handle(),
+                self.stream_handle,
+                audio_ptr,
+                pcm_data.len() as u64,
+                sample_rate as i32,
+                0,
+            )
+        };
+
+        if ret != 0 {
+            return Err(Error::ApiError {
+                code: ret,
+                message: error_string(ret),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Evaluates the stream buffer and returns an updated [`Transcript`].
+    ///
+    /// If `force` is `false`, the C library skips re-evaluation if less than ~200ms
+    /// of new audio arrived since the last poll. Pass `force = true`
+    /// (`MOONSHINE_FLAG_FORCE_UPDATE`) to force immediate model evaluation.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if transcription fails or the stream is closed.
+    pub fn poll(&mut self, force: bool) -> Result<Transcript> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let _guard = self.transcriber._lock.lock().unwrap();
+
+        let flags = if force {
+            sys::MOONSHINE_FLAG_FORCE_UPDATE as u32
+        } else {
+            0
+        };
+
+        let mut out_transcript: *mut sys::transcript_t = ptr::null_mut();
+
+        let ret = unsafe {
+            sys::moonshine_transcribe_stream(
+                self.transcriber.handle(),
+                self.stream_handle,
+                flags,
+                &mut out_transcript,
+            )
+        };
+
+        if ret != 0 {
+            return Err(Error::ApiError {
+                code: ret,
+                message: error_string(ret),
+            });
+        }
+
+        Ok(copy_transcript(out_transcript))
+    }
+
+    /// Restarts the stream (stops and restarts C stream state).
+    ///
+    /// Useful for audio discontinuities (e.g. user muted microphone or paused input)
+    /// to reset stream history before new audio arrives.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if restart fails or the stream is closed.
+    pub fn restart(&mut self) -> Result<()> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let ret_stop = unsafe {
+            sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle)
+        };
+        if ret_stop != 0 {
+            return Err(Error::ApiError {
+                code: ret_stop,
+                message: error_string(ret_stop),
+            });
+        }
+
+        let ret_start = unsafe {
+            sys::moonshine_start_stream(self.transcriber.handle(), self.stream_handle)
+        };
+        if ret_start != 0 {
+            return Err(Error::ApiError {
+                code: ret_start,
+                message: error_string(ret_start),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Finalizes the stream and returns the complete final [`Transcript`].
+    ///
+    /// Stops the stream and forces a final model evaluation. Consumes `self`.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if finalization fails.
+    pub fn finalize(mut self) -> Result<Transcript> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let ret_stop = unsafe {
+            sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle)
+        };
+        if ret_stop != 0 {
+            return Err(Error::ApiError {
+                code: ret_stop,
+                message: error_string(ret_stop),
+            });
+        }
+
+        let final_transcript = self.poll(true)?;
+        let _ = self.close();
+        Ok(final_transcript)
+    }
+
+    /// Explicitly closes the stream and releases native C resources.
+    ///
+    /// Called automatically when `TranscriberStream` is dropped.
+    pub fn close(&mut self) -> Result<()> {
+        if self.closed {
+            return Ok(());
+        }
+        self.closed = true;
+
+        if self.stream_handle >= 0 {
+            let _ = unsafe {
+                sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle)
+            };
+            let ret = unsafe {
+                sys::moonshine_free_stream(self.transcriber.handle(), self.stream_handle)
+            };
+            if ret != 0 {
+                return Err(Error::ApiError {
+                    code: ret,
+                    message: error_string(ret),
+                });
             }
         }
+        Ok(())
+    }
+}
 
-        Ok(Transcript { lines })
+impl<'a> Drop for TranscriberStream<'a> {
+    fn drop(&mut self) {
+        let _ = self.close();
     }
 }
 
@@ -562,6 +732,83 @@ impl Drop for Transcriber {
             }
         }
     }
+}
+
+fn copy_transcript(out_transcript: *mut sys::transcript_t) -> Transcript {
+    if out_transcript.is_null() {
+        return Transcript::default();
+    }
+
+    let mut lines = Vec::new();
+    unsafe {
+        let t = &*out_transcript;
+        if t.line_count > 0 && !t.lines.is_null() {
+            let raw_lines = std::slice::from_raw_parts(t.lines, t.line_count as usize);
+            for raw_line in raw_lines {
+                let text = if raw_line.text.is_null() {
+                    String::new()
+                } else {
+                    CStr::from_ptr(raw_line.text).to_string_lossy().into_owned()
+                };
+
+                let mut words = Vec::new();
+                if raw_line.word_count > 0 && !raw_line.words.is_null() {
+                    let raw_words = std::slice::from_raw_parts(
+                        raw_line.words,
+                        raw_line.word_count as usize,
+                    );
+                    for rw in raw_words {
+                        let w_text = if rw.text.is_null() {
+                            String::new()
+                        } else {
+                            CStr::from_ptr(rw.text).to_string_lossy().into_owned()
+                        };
+                        words.push(TranscriptWord {
+                            text: w_text,
+                            start: rw.start,
+                            end: rw.end,
+                            confidence: rw.confidence,
+                        });
+                    }
+                }
+
+                let mut speaker_spans = Vec::new();
+                if raw_line.speaker_span_count > 0 && !raw_line.speaker_spans.is_null() {
+                    let raw_spans = std::slice::from_raw_parts(
+                        raw_line.speaker_spans,
+                        raw_line.speaker_span_count as usize,
+                    );
+                    for rs in raw_spans {
+                        speaker_spans.push(SpeakerSpan {
+                            start_time: rs.start_time,
+                            duration: rs.duration,
+                            speaker_id: rs.speaker_id,
+                            speaker_index: rs.speaker_index,
+                            start_char: rs.start_char,
+                            end_char: rs.end_char,
+                        });
+                    }
+                }
+
+                lines.push(TranscriptLine {
+                    text,
+                    start_time: raw_line.start_time,
+                    duration: raw_line.duration,
+                    id: raw_line.id,
+                    is_complete: raw_line.is_complete != 0,
+                    is_updated: raw_line.is_updated != 0,
+                    is_new: raw_line.is_new != 0,
+                    has_text_changed: raw_line.has_text_changed != 0,
+                    have_speakers_changed: raw_line.have_speakers_changed != 0,
+                    last_transcription_latency_ms: raw_line.last_transcription_latency_ms,
+                    words,
+                    speaker_spans,
+                });
+            }
+        }
+    }
+
+    Transcript { lines }
 }
 
 /// Resolves the download manifest (CDN URLs, file sizes, CRC32C checksums) for
@@ -909,6 +1156,14 @@ mod tests {
     fn test_stt_catalog() {
         let catalog = get_stt_catalog().unwrap();
         assert!(catalog.contains("English"));
+    }
+
+    #[test]
+    fn test_stt_dependencies_tiny_streaming() {
+        let opts = SttDependenciesOptions::new().with_arch(ModelArch::TinyStreaming);
+        let deps = get_stt_dependencies_with_options("en", &opts).unwrap();
+        assert!(deps.contains("encoder.ort"));
+        assert!(deps.contains("streaming_config.json"));
     }
 
     #[test]

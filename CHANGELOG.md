@@ -5,6 +5,17 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-08
+
+### Added
+
+- **Real-Time Streaming Transcription API**:
+  - Added `TranscriberStream` RAII streaming session wrapper and `Transcriber::create_stream()`.
+  - Added `add_audio(pcm, sample_rate)`, `poll(force)`, `restart()`, and `finalize()` methods on `TranscriberStream` mapping to the C library's multi-function streaming lifecycle.
+  - Surfaced streaming metadata flags on `TranscriptLine`: `is_updated`, `is_new`, `has_text_changed`, `have_speakers_changed`, and `last_transcription_latency_ms`.
+  - Added `stream_transcribe` runnable example demonstrating real-time PCM chunk ingestion and partial/final line updates using streaming models (`tiny-streaming`, `base-streaming`).
+  - Added `download_model` support for downloading streaming model architectures (`tiny-streaming`, `base-streaming`).
+
 ## [0.1.5] - 2026-08-08
 
 ### Added

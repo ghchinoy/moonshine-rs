@@ -1985,7 +1985,7 @@ dependencies = [
 
 [[package]]
 name = "moonshine-rs"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "dirs 5.0.1",
  "hound",
@@ -2001,7 +2001,7 @@ dependencies = [
 
 [[package]]
 name = "moonshine-sys"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "bindgen",
  "cc",

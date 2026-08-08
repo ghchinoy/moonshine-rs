@@ -10,7 +10,7 @@ keywords = ["stt", "speech-to-text", "moonshine", "audio", "onnx"]
 categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
-moonshine-sys = { path = "../moonshine-sys", version = "0.1.5" }
+moonshine-sys = { path = "../moonshine-sys", version = "0.2.0" }
 thiserror = "1.0"
 ureq = "2.12"
 serde_json = "1.0"
@@ -46,6 +46,10 @@ path = "examples/async_transcribe.rs"
 [[example]]
 name = "browse_catalog"
 path = "examples/browse_catalog.rs"
+
+[[example]]
+name = "stream_transcribe"
+path = "examples/stream_transcribe.rs"
 
 [features]
 default = ["audio"]

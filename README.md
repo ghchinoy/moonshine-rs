@@ -170,6 +170,35 @@ Run the included example directly:
 cargo run --example transcribe_file -p moonshine-rs -- /path/to/model_dir /path/to/audio.wav
 ```
 
+### Real-Time Streaming Example
+
+For incremental, low-latency live microphone or audio stream processing:
+
+```rust
+use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let transcriber = Transcriber::from_files("./models/tiny-streaming", ModelArch::TinyStreaming, None)?;
+    let mut stream = transcriber.create_stream()?;
+
+    // Feed 100ms PCM chunks (1600 f32 samples at 16kHz) as they arrive
+    let pcm_chunk = vec![0.0f32; 1600];
+    stream.add_audio(&pcm_chunk, 16_000)?;
+
+    // Poll for real-time partial line updates
+    let transcript = stream.poll(false)?;
+    for line in &transcript.lines {
+        if line.is_updated {
+            println!("[{}] {}", if line.is_complete { "FINAL" } else { "PARTIAL" }, line.text);
+        }
+    }
+
+    // Finalize at end of stream
+    let final_transcript = stream.finalize()?;
+    Ok(())
+}
+```
+
 <details>
 <summary>Already have raw 16 kHz mono PCM? Skip the audio helper.</summary>
 
