@@ -44,7 +44,7 @@ catalog browsing.
 - [Architecture & How It Works](#architecture--how-it-works)
 - [Installation](#installation)
 - [Usage Example](#usage-example)
-- [Tauri v2 + Lit Demo App](#tauri-v2--lit-demo-app)
+- [Demos](#demos)
 - [Local Development Setup](#local-development-setup)
 - [Contributing](#contributing)
 - [License](#license)
@@ -220,19 +220,35 @@ and run with `cargo run --example <name> -p moonshine-rs -- <args>`:
 
 | I want to… | Example | Args |
 | :--- | :--- | :--- |
-| Download a model | `download_model` | `<OUTPUT_DIR> [LANGUAGE]` |
+| Download a model | `download_model` | `<OUTPUT_DIR> [LANGUAGE] [ARCH]` |
 | Transcribe a file | `transcribe_file` | `<MODEL_DIR> <AUDIO_FILE>` |
+| Real-time streaming | `stream_transcribe` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Get word-level timestamps | `word_timestamps` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Identify speakers (diarization) | `speaker_diarization` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Transcribe from an async runtime | `async_transcribe` | `<MODEL_DIR> <AUDIO_FILE>` |
 | List available models/languages | `browse_catalog` | *(none)* |
 
-## Tauri v2 + Lit Demo App
+## Demos
 
-A complete, production-ready desktop example is available at [`demo/tauri-mic-transcriber`](demo/tauri-mic-transcriber):
+### 1. Live Microphone Streaming CLI (`stream-cli`)
+
+A real-time terminal application ([`demo/stream-cli`](demo/stream-cli)) demonstrating live microphone speech recognition with `cpal` and `OwnedTranscriberStream`:
+
+```bash
+# 1. Download tiny-streaming model
+cargo run --example download_model -p moonshine-rs -- ./models/tiny-streaming en tiny-streaming
+
+# 2. Run live microphone stream
+cargo run -p stream-cli -- ./models/tiny-streaming
+# or: just stream-cli
+```
+
+### 2. Tauri v2 + Lit Desktop App (`tauri-mic-transcriber`)
+
+A complete, production-ready desktop GUI app ([`demo/tauri-mic-transcriber`](demo/tauri-mic-transcriber)):
 
 - **Lit Web Components**: Modular UI components (`<moonshine-model-picker>`, `<moonshine-mic-recorder>`, `<moonshine-file-drop>`, `<moonshine-transcript-view>`).
-- **Live Mic Dictation**: Real-time microphone audio capture via Web Audio API.
+- **Live Mic Dictation**: Real-time microphone audio capture and streaming.
 - **In-App Model Downloader**: Live download progress bar fetching models directly from `download.moonshine.ai`.
 - **Drag-and-Drop Audio**: Drag & drop any MP3, WAV, AAC, FLAC, OGG file to transcribe.
 
@@ -240,6 +256,7 @@ A complete, production-ready desktop example is available at [`demo/tauri-mic-tr
 cd demo/tauri-mic-transcriber
 npm install
 npx @tauri-apps/cli dev
+# or: just demo
 ```
 
 ## Local Development Setup

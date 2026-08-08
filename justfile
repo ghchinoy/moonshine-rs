@@ -4,6 +4,7 @@
 
 # Default model location used by the transcribe/example recipes.
 model_dir := "./models/tiny-en"
+streaming_model_dir := "./models/tiny-streaming"
 
 # List available recipes.
 default:
@@ -41,6 +42,14 @@ example name args="":
 # Build every example (used in CI to prevent example rot).
 examples:
     cargo build --examples -p moonshine-rs
+
+# Download the tiny-streaming model into {{streaming_model_dir}}.
+download-streaming dir=streaming_model_dir:
+    cargo run --example download_model -p moonshine-rs -- {{dir}} en tiny-streaming
+
+# Run the live microphone streaming terminal demo. Usage: `just stream-cli [model_dir]`
+stream-cli dir=streaming_model_dir:
+    cargo run -p stream-cli -- {{dir}}
 
 # Run the Tauri + Lit desktop demo.
 demo:
