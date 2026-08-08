@@ -5,6 +5,19 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-08-08
+
+### Added
+
+- **In-Memory Model Loading**:
+  - Added `Transcriber::from_memory_files(arch, files, options)` allowing transcribers to be initialized directly from in-memory byte buffers (`encoder_model.ort`, `decoder_model_merged.ort`, `tokenizer.bin`, etc.) without requiring disk files.
+  - Automatically handles speaker diarization model dependencies when `with_identify_speakers(true)` is set.
+
+### Fixed
+
+- **Demo App Packaging**:
+  - Regenerated `demo/tauri-mic-transcriber/src-tauri/icons/icon.icns` as a valid multi-resolution macOS ICNS container (via `sips`/`iconutil`) to prevent packaging issues when building macOS app bundles.
+
 ## [0.1.4] - 2026-08-08
 
 ### Added
