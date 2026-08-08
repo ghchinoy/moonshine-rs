@@ -359,6 +359,89 @@ impl Transcriber {
         })
     }
 
+    /// Loads a transcriber from in-memory model file buffers.
+    ///
+    /// Each entry in `files` is a `(filename, buffer)` pair, where `filename` is the
+    /// canonical model filename (e.g. `"encoder_model.ort"`, `"decoder_model_merged.ort"`,
+    /// `"tokenizer.bin"`, and optionally `"segmentation.ort"` / `"embedding.ort"` for
+    /// diarization).
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if the model cannot be loaded from memory.
+    pub fn from_memory_files(
+        arch: ModelArch,
+        files: &[(&str, &[u8])],
+        options: Option<&TranscriberOptions>,
+    ) -> Result<Self> {
+        let mut effective_opts = options.cloned().unwrap_or_default();
+
+        if effective_opts.get("identify_speakers") == Some("true")
+            && effective_opts.get("diarization_model_dir").is_none()
+            && !files.iter().any(|(f, _)| *f == "segmentation.ort")
+        {
+            let diarization_dir = ensure_diarization_models_downloaded()?;
+            effective_opts = effective_opts.with_diarization_model_dir(diarization_dir);
+        }
+
+        let mut c_filenames = Vec::with_capacity(files.len());
+        let mut filename_ptrs = Vec::with_capacity(files.len());
+        let mut memory_ptrs = Vec::with_capacity(files.len());
+        let mut memory_sizes = Vec::with_capacity(files.len());
+
+        for (filename, bytes) in files {
+            let c_fn = CString::new(*filename)?;
+            filename_ptrs.push(c_fn.as_ptr());
+            c_filenames.push(c_fn);
+            memory_ptrs.push(bytes.as_ptr());
+            memory_sizes.push(bytes.len() as u64);
+        }
+
+        let mut raw_opts = Vec::with_capacity(effective_opts.options.len());
+        let mut strings = Vec::with_capacity(effective_opts.options.len() * 2);
+
+        for (k, v) in &effective_opts.options {
+            let ck = CString::new(k.as_str())?;
+            let cv = CString::new(v.as_str())?;
+            raw_opts.push(sys::moonshine_option_t {
+                name: ck.as_ptr(),
+                value: cv.as_ptr(),
+            });
+            strings.push(ck);
+            strings.push(cv);
+        }
+
+        let opts_ptr = if raw_opts.is_empty() {
+            ptr::null()
+        } else {
+            raw_opts.as_ptr()
+        };
+
+        let handle = unsafe {
+            sys::moonshine_load_transcriber_from_memory_files(
+                filename_ptrs.as_mut_ptr(),
+                memory_ptrs.as_mut_ptr(),
+                memory_sizes.as_ptr(),
+                files.len() as u64,
+                arch.as_u32(),
+                opts_ptr,
+                raw_opts.len() as u64,
+                sys::MOONSHINE_HEADER_VERSION as i32,
+            )
+        };
+
+        if handle < 0 {
+            return Err(Error::ApiError {
+                code: handle,
+                message: error_string(handle),
+            });
+        }
+
+        Ok(Self {
+            handle,
+            _lock: Mutex::new(()),
+        })
+    }
+
     /// Returns the raw native handle. Primarily useful for logging/debugging.
     pub fn handle(&self) -> i32 {
         self.handle
@@ -845,5 +928,26 @@ mod tests {
         assert_eq!(opts.get("identify_speakers"), Some("true"));
         assert_eq!(opts.get("use_speculative_decoding"), Some("false"));
         assert_eq!(opts.get("diarization_model_dir"), Some("/tmp/test_dir"));
+    }
+
+    #[test]
+    fn test_from_memory_files() {
+        let model_dir = PathBuf::from("/tmp/models/tiny-en");
+        if !model_dir.exists() {
+            return;
+        }
+
+        let enc_bytes = fs::read(model_dir.join("encoder_model.ort")).unwrap();
+        let dec_bytes = fs::read(model_dir.join("decoder_model_merged.ort")).unwrap();
+        let tok_bytes = fs::read(model_dir.join("tokenizer.bin")).unwrap();
+
+        let files = [
+            ("encoder_model.ort", enc_bytes.as_slice()),
+            ("decoder_model_merged.ort", dec_bytes.as_slice()),
+            ("tokenizer.bin", tok_bytes.as_slice()),
+        ];
+
+        let transcriber = Transcriber::from_memory_files(ModelArch::Tiny, &files, None).unwrap();
+        assert!(transcriber.handle() >= 0);
     }
 }
