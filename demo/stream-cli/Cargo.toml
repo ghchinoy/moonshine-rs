@@ -1,0 +1,11 @@
+[package]
+name = "stream-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal live microphone streaming transcription demo for Moonshine Voice"
+publish = false
+
+[dependencies]
+moonshine-rs = { path = "../../crates/moonshine-rs" }
+cpal = "0.18"
+ctrlc = "3.4"

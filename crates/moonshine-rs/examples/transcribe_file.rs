@@ -55,7 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = TranscriberOptions::new();
     let transcriber = Transcriber::from_files(&model_dir, ModelArch::Tiny, Some(&options))?;
 
-    println!("Transcriber loaded successfully (handle: {})", transcriber.handle());
+    println!(
+        "Transcriber loaded successfully (handle: {})",
+        transcriber.handle()
+    );
 
     let start_time = std::time::Instant::now();
     let transcript = transcriber.transcribe(&pcm_data, sample_rate)?;

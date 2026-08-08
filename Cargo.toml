@@ -3,11 +3,12 @@ members = [
     "crates/moonshine-sys",
     "crates/moonshine-rs",
     "demo/tauri-mic-transcriber/src-tauri",
+    "demo/stream-cli",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["G. H. Chinoy <ghchinoy@gmail.com>"]
 license = "MIT OR Apache-2.0"

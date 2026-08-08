@@ -46,7 +46,10 @@ fn get_onnxruntime_dir(core_dir: &Path) -> PathBuf {
         _ => target_arch.as_str(),
     };
 
-    let ort_path = core_dir.join(format!("third-party/onnxruntime/lib/{}/{}", os_sub, arch_sub));
+    let ort_path = core_dir.join(format!(
+        "third-party/onnxruntime/lib/{}/{}",
+        os_sub, arch_sub
+    ));
     if ort_path.exists() {
         ort_path
     } else {
@@ -89,14 +92,20 @@ fn download_prebuilt_release(out_dir: &Path) -> Result<(PathBuf, PathBuf), Strin
             "https://github.com/moonshine-ai/moonshine/releases/download/{}/{}",
             version_tag, asset_name
         );
-        println!("cargo:warning=Downloading prebuilt libmoonshine release ({}) from {}", version_tag, url);
+        println!(
+            "cargo:warning=Downloading prebuilt libmoonshine release ({}) from {}",
+            version_tag, url
+        );
 
         fs::create_dir_all(&prebuilt_root)
             .map_err(|e| format!("Failed to create prebuilt directory: {}", e))?;
 
-        let response = ureq::get(&url)
-            .call()
-            .map_err(|e| format!("Failed to download prebuilt libmoonshine from {}: {}", url, e))?;
+        let response = ureq::get(&url).call().map_err(|e| {
+            format!(
+                "Failed to download prebuilt libmoonshine from {}: {}",
+                url, e
+            )
+        })?;
 
         let gz = flate2::read::GzDecoder::new(response.into_reader());
         let mut archive = tar::Archive::new(gz);
@@ -198,7 +207,10 @@ fn main() {
             moonshine_root.clone()
         };
 
-        println!("cargo:rerun-if-changed={}", core_dir.join("moonshine-c-api.h").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            core_dir.join("moonshine-c-api.h").display()
+        );
 
         let mut config = cmake::Config::new(&core_dir);
         config.define("MOONSHINE_BUILD_SHARED", "OFF");
@@ -239,7 +251,10 @@ fn main() {
         let bindings = bindgen::Builder::default()
             .header("wrapper.h")
             .clang_arg(format!("-I{}", core_dir.display()))
-            .clang_arg(format!("-I{}", core_dir.join("third-party/onnxruntime/include").display()))
+            .clang_arg(format!(
+                "-I{}",
+                core_dir.join("third-party/onnxruntime/include").display()
+            ))
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
             .generate()
             .expect("Unable to generate bindings");

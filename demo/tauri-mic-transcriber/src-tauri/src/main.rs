@@ -68,6 +68,9 @@ fn main() {
             commands::load_transcriber,
             commands::transcribe_audio_file,
             commands::transcribe_pcm_samples,
+            commands::start_stream,
+            commands::feed_stream_pcm,
+            commands::stop_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -21,7 +21,9 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{
+    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 
 use crate::{Error, Result};
 
@@ -74,17 +76,18 @@ pub fn decode_audio_file(path: impl AsRef<Path>) -> Result<AudioDecoded> {
 
     let mut format = probed.format;
 
-    let track = format
-        .default_track()
+    let track = format.default_track().ok_or_else(|| Error::ApiError {
+        code: -1,
+        message: format!("No default audio track found in {}", path.display()),
+    })?;
+
+    let sample_rate = track
+        .codec_params
+        .sample_rate
         .ok_or_else(|| Error::ApiError {
             code: -1,
-            message: format!("No default audio track found in {}", path.display()),
+            message: "Audio track missing sample rate".to_string(),
         })?;
-
-    let sample_rate = track.codec_params.sample_rate.ok_or_else(|| Error::ApiError {
-        code: -1,
-        message: "Audio track missing sample rate".to_string(),
-    })?;
 
     let channels = track
         .codec_params
@@ -289,17 +292,11 @@ pub fn resample_pcm(
     let resample_ratio = target_rate as f64 / source_rate as f64;
     let max_chunk_size = 1024;
 
-    let mut resampler = SincFixedIn::<f32>::new(
-        resample_ratio,
-        2.0,
-        params,
-        max_chunk_size,
-        1,
-    )
-    .map_err(|e| Error::ApiError {
-        code: -1,
-        message: format!("Failed to create rubato resampler: {}", e),
-    })?;
+    let mut resampler = SincFixedIn::<f32>::new(resample_ratio, 2.0, params, max_chunk_size, 1)
+        .map_err(|e| Error::ApiError {
+            code: -1,
+            message: format!("Failed to create rubato resampler: {}", e),
+        })?;
 
     let mut output_mono = Vec::new();
     let mut offset = 0;

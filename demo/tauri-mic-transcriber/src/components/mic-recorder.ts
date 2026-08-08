@@ -97,17 +97,27 @@ export class MoonshineMicRecorder extends LitElement {
         },
       });
 
+      await invoke("start_stream");
+
       this.audioContext = new AudioContext({ sampleRate: 16000 });
       const source = this.audioContext.createMediaStreamSource(this.mediaStream);
       const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       this.pcmSamples = [];
+      let pendingBuffer: number[] = [];
 
       processor.onaudioprocess = (e) => {
         if (!this.isRecording) return;
         const inputData = e.inputBuffer.getChannelData(0);
         for (let i = 0; i < inputData.length; i++) {
           this.pcmSamples.push(inputData[i]);
+          pendingBuffer.push(inputData[i]);
+        }
+
+        if (pendingBuffer.length >= 3200) {
+          const chunk = pendingBuffer;
+          pendingBuffer = [];
+          this.feedStreamChunk(chunk);
         }
       };
 
@@ -115,30 +125,21 @@ export class MoonshineMicRecorder extends LitElement {
       processor.connect(this.audioContext.destination);
 
       this.isRecording = true;
-      this.statusText = "Recording active... Dictation updates live every 2.5s.";
-
-      this.updateInterval = setInterval(() => {
-        if (this.isRecording && this.pcmSamples.length >= 16000) {
-          this.runPartialTranscription();
-        }
-      }, 2500);
+      this.statusText = "Real-time streaming active... Speak into microphone.";
     } catch (e: any) {
-      this.statusText = `Microphone access error: ${e.message || e}`;
+      this.statusText = `Microphone / Streaming error: ${e.message || e}`;
     }
   }
 
-  private async runPartialTranscription() {
-    if (this.pcmSamples.length === 0) return;
-
+  private async feedStreamChunk(chunk: number[]) {
     try {
-      const sampleRate = 16000;
-      const transcript = await invoke("transcribe_pcm_samples", {
-        pcmSamples: [...this.pcmSamples],
-        sampleRate,
+      const transcript = await invoke("feed_stream_pcm", {
+        pcmSamples: chunk,
+        sampleRate: 16000,
       });
 
-      const durationSec = (this.pcmSamples.length / sampleRate).toFixed(1);
-      this.statusText = `Recording active (${durationSec}s recorded) — updating...`;
+      const durationSec = (this.pcmSamples.length / 16000).toFixed(1);
+      this.statusText = `Live streaming active (${durationSec}s recorded)...`;
 
       this.dispatchEvent(
         new CustomEvent("transcript-result", {
@@ -148,7 +149,7 @@ export class MoonshineMicRecorder extends LitElement {
         })
       );
     } catch (e: any) {
-      // Partial errors non-fatal
+      // Partial streaming errors non-fatal
     }
   }
 
@@ -162,7 +163,7 @@ export class MoonshineMicRecorder extends LitElement {
 
     this.isRecording = false;
     this.isProcessing = true;
-    this.statusText = "Finalizing transcription...";
+    this.statusText = "Finalizing stream...";
 
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((t) => t.stop());
@@ -178,12 +179,9 @@ export class MoonshineMicRecorder extends LitElement {
     const durationSec = (this.pcmSamples.length / sampleRate).toFixed(1);
 
     try {
-      const transcript = await invoke("transcribe_pcm_samples", {
-        pcmSamples: this.pcmSamples,
-        sampleRate,
-      });
+      const transcript = await invoke("stop_stream");
 
-      this.statusText = `Transcription complete (${durationSec}s recorded).`;
+      this.statusText = `Stream finalized (${durationSec}s recorded).`;
 
       this.dispatchEvent(
         new CustomEvent("transcript-result", {
@@ -193,7 +191,7 @@ export class MoonshineMicRecorder extends LitElement {
         })
       );
     } catch (e: any) {
-      this.statusText = `Transcription error: ${e}`;
+      this.statusText = `Stream finalize error: ${e}`;
     } finally {
       this.isProcessing = false;
     }

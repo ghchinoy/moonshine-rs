@@ -23,7 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() < 3 {
         eprintln!("Usage: {} <STREAMING_MODEL_DIR> <AUDIO_FILE>", args[0]);
         eprintln!();
-        eprintln!("  STREAMING_MODEL_DIR  Directory containing a streaming model (e.g. tiny-streaming).");
+        eprintln!(
+            "  STREAMING_MODEL_DIR  Directory containing a streaming model (e.g. tiny-streaming)."
+        );
         eprintln!("  AUDIO_FILE           Audio file to simulate streaming input from.");
         std::process::exit(2);
     }
@@ -34,7 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading audio from: {}", audio_file.display());
     let pcm = load_audio_for_transcription(&audio_file)?;
 
-    println!("Loading streaming transcriber from: {}", model_dir.display());
+    println!(
+        "Loading streaming transcriber from: {}",
+        model_dir.display()
+    );
     let options = TranscriberOptions::new();
     let transcriber =
         Transcriber::from_files(&model_dir, ModelArch::TinyStreaming, Some(&options))?;

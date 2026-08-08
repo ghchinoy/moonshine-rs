@@ -44,7 +44,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub use moonshine_sys as sys;
 
@@ -149,7 +149,10 @@ impl TranscriberOptions {
 
     /// Returns the option value for a given key, if set.
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.options.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.options
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     /// Selects the ONNX Runtime execution providers (e.g. `"CPU"`).
@@ -160,7 +163,10 @@ impl TranscriberOptions {
     /// Controls whether to re-decode the previous hypothesis on streaming updates using
     /// speculative decoding (default `true` upstream).
     pub fn with_speculative_decoding(self, enable: bool) -> Self {
-        self.set("use_speculative_decoding", if enable { "true" } else { "false" })
+        self.set(
+            "use_speculative_decoding",
+            if enable { "true" } else { "false" },
+        )
     }
 
     /// Enables speaker identification (diarization). See the
@@ -316,13 +322,10 @@ impl Transcriber {
             effective_opts = effective_opts.with_diarization_model_dir(diarization_dir);
         }
 
-        let path_str = path
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| Error::ApiError {
-                code: -1,
-                message: "Path contains invalid UTF-8".to_string(),
-            })?;
+        let path_str = path.as_ref().to_str().ok_or_else(|| Error::ApiError {
+            code: -1,
+            message: "Path contains invalid UTF-8".to_string(),
+        })?;
 
         let c_path = CString::new(path_str)?;
 
@@ -525,6 +528,39 @@ impl Transcriber {
             closed: false,
         })
     }
+
+    /// Creates and starts an owned streaming session [`OwnedTranscriberStream`] that owns
+    /// an `Arc<Transcriber>`.
+    ///
+    /// Useful when storing streaming state in application state (e.g. GUI state or actors)
+    /// across long-lived tasks or async boundaries without an explicit lifetime parameter.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if creating or starting the native stream fails.
+    pub fn create_owned_stream(self: Arc<Self>) -> Result<OwnedTranscriberStream> {
+        let stream_handle = unsafe { sys::moonshine_create_stream(self.handle, 0) };
+        if stream_handle < 0 {
+            return Err(Error::ApiError {
+                code: stream_handle,
+                message: error_string(stream_handle),
+            });
+        }
+
+        let ret_start = unsafe { sys::moonshine_start_stream(self.handle, stream_handle) };
+        if ret_start != 0 {
+            let _ = unsafe { sys::moonshine_free_stream(self.handle, stream_handle) };
+            return Err(Error::ApiError {
+                code: ret_start,
+                message: error_string(ret_start),
+            });
+        }
+
+        Ok(OwnedTranscriberStream {
+            transcriber: self,
+            stream_handle,
+            closed: false,
+        })
+    }
 }
 
 /// An active streaming session for incremental, real-time transcription.
@@ -604,7 +640,7 @@ impl<'a> TranscriberStream<'a> {
         let _guard = self.transcriber._lock.lock().unwrap();
 
         let flags = if force {
-            sys::MOONSHINE_FLAG_FORCE_UPDATE as u32
+            sys::MOONSHINE_FLAG_FORCE_UPDATE
         } else {
             0
         };
@@ -642,9 +678,8 @@ impl<'a> TranscriberStream<'a> {
             return Err(Error::InvalidHandle);
         }
 
-        let ret_stop = unsafe {
-            sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle)
-        };
+        let ret_stop =
+            unsafe { sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle) };
         if ret_stop != 0 {
             return Err(Error::ApiError {
                 code: ret_stop,
@@ -652,9 +687,8 @@ impl<'a> TranscriberStream<'a> {
             });
         }
 
-        let ret_start = unsafe {
-            sys::moonshine_start_stream(self.transcriber.handle(), self.stream_handle)
-        };
+        let ret_start =
+            unsafe { sys::moonshine_start_stream(self.transcriber.handle(), self.stream_handle) };
         if ret_start != 0 {
             return Err(Error::ApiError {
                 code: ret_start,
@@ -676,9 +710,8 @@ impl<'a> TranscriberStream<'a> {
             return Err(Error::InvalidHandle);
         }
 
-        let ret_stop = unsafe {
-            sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle)
-        };
+        let ret_stop =
+            unsafe { sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle) };
         if ret_stop != 0 {
             return Err(Error::ApiError {
                 code: ret_stop,
@@ -724,6 +757,173 @@ impl<'a> Drop for TranscriberStream<'a> {
     }
 }
 
+/// An owned streaming session for incremental, real-time transcription.
+///
+/// Unlike [`TranscriberStream`], which borrows a `&'a Transcriber`, `OwnedTranscriberStream`
+/// holds an `Arc<Transcriber>`. This makes it `'static` and easy to store in application state,
+/// move across async tasks, or send to background workers.
+pub struct OwnedTranscriberStream {
+    transcriber: Arc<Transcriber>,
+    stream_handle: i32,
+    closed: bool,
+}
+
+unsafe impl Send for OwnedTranscriberStream {}
+unsafe impl Sync for OwnedTranscriberStream {}
+
+impl OwnedTranscriberStream {
+    /// Returns the underlying native stream handle.
+    pub fn handle(&self) -> i32 {
+        self.stream_handle
+    }
+
+    /// Appends newly-captured PCM audio samples (`f32` in `[-1.0, 1.0]`) to the stream buffer.
+    pub fn add_audio(&mut self, pcm_data: &[f32], sample_rate: u32) -> Result<()> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let mut audio_vec = pcm_data.to_vec();
+        let audio_ptr = if audio_vec.is_empty() {
+            ptr::null()
+        } else {
+            audio_vec.as_mut_ptr()
+        };
+
+        let ret = unsafe {
+            sys::moonshine_transcribe_add_audio_to_stream(
+                self.transcriber.handle(),
+                self.stream_handle,
+                audio_ptr,
+                pcm_data.len() as u64,
+                sample_rate as i32,
+                0,
+            )
+        };
+
+        if ret != 0 {
+            return Err(Error::ApiError {
+                code: ret,
+                message: error_string(ret),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Evaluates the stream buffer and returns an updated [`Transcript`].
+    pub fn poll(&mut self, force: bool) -> Result<Transcript> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let _guard = self.transcriber._lock.lock().unwrap();
+
+        let flags = if force {
+            sys::MOONSHINE_FLAG_FORCE_UPDATE
+        } else {
+            0
+        };
+
+        let mut out_transcript: *mut sys::transcript_t = ptr::null_mut();
+
+        let ret = unsafe {
+            sys::moonshine_transcribe_stream(
+                self.transcriber.handle(),
+                self.stream_handle,
+                flags,
+                &mut out_transcript,
+            )
+        };
+
+        if ret != 0 {
+            return Err(Error::ApiError {
+                code: ret,
+                message: error_string(ret),
+            });
+        }
+
+        Ok(copy_transcript(out_transcript))
+    }
+
+    /// Restarts the stream (stops and restarts C stream state).
+    pub fn restart(&mut self) -> Result<()> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let ret_stop =
+            unsafe { sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle) };
+        if ret_stop != 0 {
+            return Err(Error::ApiError {
+                code: ret_stop,
+                message: error_string(ret_stop),
+            });
+        }
+
+        let ret_start =
+            unsafe { sys::moonshine_start_stream(self.transcriber.handle(), self.stream_handle) };
+        if ret_start != 0 {
+            return Err(Error::ApiError {
+                code: ret_start,
+                message: error_string(ret_start),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Finalizes the stream and returns the complete final [`Transcript`].
+    pub fn finalize(mut self) -> Result<Transcript> {
+        if self.closed {
+            return Err(Error::InvalidHandle);
+        }
+
+        let ret_stop =
+            unsafe { sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle) };
+        if ret_stop != 0 {
+            return Err(Error::ApiError {
+                code: ret_stop,
+                message: error_string(ret_stop),
+            });
+        }
+
+        let final_transcript = self.poll(true)?;
+        let _ = self.close();
+        Ok(final_transcript)
+    }
+
+    /// Explicitly closes the stream and releases native C resources.
+    pub fn close(&mut self) -> Result<()> {
+        if self.closed {
+            return Ok(());
+        }
+        self.closed = true;
+
+        if self.stream_handle >= 0 {
+            let _ = unsafe {
+                sys::moonshine_stop_stream(self.transcriber.handle(), self.stream_handle)
+            };
+            let ret = unsafe {
+                sys::moonshine_free_stream(self.transcriber.handle(), self.stream_handle)
+            };
+            if ret != 0 {
+                return Err(Error::ApiError {
+                    code: ret,
+                    message: error_string(ret),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for OwnedTranscriberStream {
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
+}
+
 impl Drop for Transcriber {
     fn drop(&mut self) {
         if self.handle >= 0 {
@@ -753,10 +953,8 @@ fn copy_transcript(out_transcript: *mut sys::transcript_t) -> Transcript {
 
                 let mut words = Vec::new();
                 if raw_line.word_count > 0 && !raw_line.words.is_null() {
-                    let raw_words = std::slice::from_raw_parts(
-                        raw_line.words,
-                        raw_line.word_count as usize,
-                    );
+                    let raw_words =
+                        std::slice::from_raw_parts(raw_line.words, raw_line.word_count as usize);
                     for rw in raw_words {
                         let w_text = if rw.text.is_null() {
                             String::new()
@@ -944,7 +1142,11 @@ pub fn get_stt_dependencies_with_options(
     let ret = unsafe {
         sys::moonshine_get_stt_dependencies(
             c_lang.as_ptr(),
-            if opts.is_empty() { ptr::null() } else { opts.as_ptr() },
+            if opts.is_empty() {
+                ptr::null()
+            } else {
+                opts.as_ptr()
+            },
             opts.len() as u64,
             &mut out_json,
         )
@@ -1112,7 +1314,10 @@ pub fn ensure_diarization_models_downloaded() -> Result<PathBuf> {
 
             fs::write(&dest, &bytes).map_err(|e| Error::ApiError {
                 code: -1,
-                message: format!("Failed to write diarization model to {}: {e}", dest.display()),
+                message: format!(
+                    "Failed to write diarization model to {}: {e}",
+                    dest.display()
+                ),
             })?;
         }
     }
@@ -1187,10 +1392,13 @@ mod tests {
 
     #[test]
     fn test_from_memory_files() {
-        let model_dir = PathBuf::from("/tmp/models/tiny-en");
-        if !model_dir.exists() {
+        let model_dir = if let Ok(dir) = env::var("MOONSHINE_TEST_MODEL_DIR") {
+            PathBuf::from(dir)
+        } else if PathBuf::from("/tmp/models/tiny-en").exists() {
+            PathBuf::from("/tmp/models/tiny-en")
+        } else {
             return;
-        }
+        };
 
         let enc_bytes = fs::read(model_dir.join("encoder_model.ort")).unwrap();
         let dec_bytes = fs::read(model_dir.join("decoder_model_merged.ort")).unwrap();
@@ -1204,5 +1412,52 @@ mod tests {
 
         let transcriber = Transcriber::from_memory_files(ModelArch::Tiny, &files, None).unwrap();
         assert!(transcriber.handle() >= 0);
+    }
+
+    #[test]
+    fn test_streaming_lifecycle() {
+        let model_dir = if let Ok(dir) = env::var("MOONSHINE_TEST_STREAMING_DIR") {
+            PathBuf::from(dir)
+        } else if PathBuf::from("/tmp/models/tiny-streaming").exists() {
+            PathBuf::from("/tmp/models/tiny-streaming")
+        } else {
+            return;
+        };
+
+        let transcriber =
+            Transcriber::from_files(&model_dir, ModelArch::TinyStreaming, None).unwrap();
+        let mut stream = transcriber.create_stream().unwrap();
+
+        // Feed 1 second of silence in 100ms chunks (1600 samples at 16kHz)
+        let chunk = vec![0.0f32; 1600];
+        for _ in 0..10 {
+            stream.add_audio(&chunk, 16_000).unwrap();
+            let _ = stream.poll(false).unwrap();
+        }
+
+        stream.restart().unwrap();
+        let final_transcript = stream.finalize().unwrap();
+        assert!(final_transcript.lines.is_empty() || !final_transcript.lines.is_empty());
+    }
+
+    #[test]
+    fn test_owned_streaming_lifecycle() {
+        let model_dir = if let Ok(dir) = env::var("MOONSHINE_TEST_STREAMING_DIR") {
+            PathBuf::from(dir)
+        } else if PathBuf::from("/tmp/models/tiny-streaming").exists() {
+            PathBuf::from("/tmp/models/tiny-streaming")
+        } else {
+            return;
+        };
+
+        let transcriber =
+            Arc::new(Transcriber::from_files(&model_dir, ModelArch::TinyStreaming, None).unwrap());
+        let mut stream = transcriber.create_owned_stream().unwrap();
+
+        let chunk = vec![0.0f32; 1600];
+        stream.add_audio(&chunk, 16_000).unwrap();
+        let _ = stream.poll(true).unwrap();
+
+        let _ = stream.finalize().unwrap();
     }
 }

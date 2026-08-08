@@ -162,14 +162,32 @@ export class MoonshineModelPicker extends LitElement {
     }
   }
 
+  private get selectedArchName(): string {
+    switch (this.selectedArch) {
+      case 1:
+        return "base-en";
+      case 2:
+        return "tiny-streaming-en";
+      case 4:
+        return "small-streaming-en";
+      case 5:
+        return "medium-streaming-en";
+      case 0:
+      default:
+        return "tiny-en";
+    }
+  }
+
   private get selectedArchLabel(): string {
     switch (this.selectedArch) {
       case 1:
         return "base-en";
       case 2:
         return "tiny-en (streaming)";
-      case 3:
-        return "base-en (streaming)";
+      case 4:
+        return "small-en (streaming)";
+      case 5:
+        return "medium-en (streaming)";
       case 0:
       default:
         return "tiny-en";
@@ -183,7 +201,7 @@ export class MoonshineModelPicker extends LitElement {
   async downloadModel(arch: number) {
     this.selectedArch = arch;
     this.isDownloading = true;
-    const archName = arch === 1 ? "base-en" : "tiny-en";
+    const archName = this.selectedArchName;
     this.statusMessage = `Fetching ${archName} model dependencies manifest...`;
 
     try {
@@ -193,7 +211,7 @@ export class MoonshineModelPicker extends LitElement {
       });
 
       this.statusMessage = `Downloading ${archName} model files from CDN...`;
-      const destDir = `models/${archName}/quantized/${archName}`;
+      const destDir = `models/${archName}`;
 
       const finalPath = await invoke<string>("download_model_files", {
         manifestJson,
@@ -262,7 +280,8 @@ export class MoonshineModelPicker extends LitElement {
             <option value="0">Tiny</option>
             <option value="1">Base</option>
             <option value="2">Tiny Streaming</option>
-            <option value="3">Base Streaming</option>
+            <option value="4">Small Streaming</option>
+            <option value="5">Medium Streaming</option>
           </select>
 
           <md-outlined-button

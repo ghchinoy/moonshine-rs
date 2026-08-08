@@ -1,15 +1,18 @@
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions, Transcript};
+use moonshine_rs::{
+    ModelArch, OwnedTranscriberStream, Transcriber, TranscriberOptions, Transcript,
+};
 
 #[derive(Default)]
 pub struct AppState {
-    pub transcriber: Mutex<Option<Transcriber>>,
+    pub transcriber: Mutex<Option<Arc<Transcriber>>>,
+    pub stream: Mutex<Option<OwnedTranscriberStream>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +52,8 @@ pub fn get_stt_dependencies(language: String, model_arch: Option<u32>) -> Result
         Some(1) => Some(ModelArch::Base),
         Some(2) => Some(ModelArch::TinyStreaming),
         Some(3) => Some(ModelArch::BaseStreaming),
+        Some(4) => Some(ModelArch::SmallStreaming),
+        Some(5) => Some(ModelArch::MediumStreaming),
         _ => None,
     };
 
@@ -61,8 +66,8 @@ pub async fn download_model_files(
     manifest_json: String,
     dest_dir: String,
 ) -> Result<String, String> {
-    let manifest: ManifestRoot =
-        serde_json::from_str(&manifest_json).map_err(|e| format!("Invalid manifest JSON: {}", e))?;
+    let manifest: ManifestRoot = serde_json::from_str(&manifest_json)
+        .map_err(|e| format!("Invalid manifest JSON: {}", e))?;
 
     let dest_path = PathBuf::from(&dest_dir);
     tokio::fs::create_dir_all(&dest_path)
@@ -132,18 +137,92 @@ pub fn load_transcriber(
         1 => ModelArch::Base,
         2 => ModelArch::TinyStreaming,
         3 => ModelArch::BaseStreaming,
+        4 => ModelArch::SmallStreaming,
+        5 => ModelArch::MediumStreaming,
         _ => ModelArch::Tiny,
     };
 
     let options = TranscriberOptions::new();
-    let transcriber =
-        Transcriber::from_files(Path::new(&model_dir), arch, Some(&options)).map_err(|e| e.to_string())?;
+    let transcriber = Transcriber::from_files(Path::new(&model_dir), arch, Some(&options))
+        .map_err(|e| e.to_string())?;
 
     let handle = transcriber.handle();
     let mut lock = state.transcriber.lock().unwrap();
-    *lock = Some(transcriber);
+    *lock = Some(Arc::new(transcriber));
 
-    Ok(format!("Successfully loaded transcriber (handle {})", handle))
+    Ok(format!(
+        "Successfully loaded transcriber (handle {})",
+        handle
+    ))
+}
+
+#[tauri::command]
+pub fn start_stream(state: State<'_, AppState>) -> Result<String, String> {
+    let lock = state.transcriber.lock().unwrap();
+    let transcriber = lock
+        .as_ref()
+        .ok_or_else(|| "Transcriber is not loaded yet.".to_string())?
+        .clone();
+
+    let stream = transcriber
+        .create_owned_stream()
+        .map_err(|e| e.to_string())?;
+    let handle = stream.handle();
+
+    let mut stream_lock = state.stream.lock().unwrap();
+    *stream_lock = Some(stream);
+
+    Ok(format!("Stream started (handle {})", handle))
+}
+
+#[tauri::command]
+pub async fn feed_stream_pcm(
+    app: AppHandle,
+    pcm_samples: Vec<f32>,
+    sample_rate: u32,
+) -> Result<Transcript, String> {
+    tokio::task::spawn_blocking(move || -> Result<Transcript, String> {
+        let pcm_16k = if sample_rate != 16000 {
+            moonshine_rs::audio::resample_pcm(
+                &pcm_samples,
+                sample_rate,
+                16000,
+                1,
+                moonshine_rs::audio::ResampleQuality::Fast,
+            )
+            .map_err(|e| format!("Failed to resample mic audio: {}", e))?
+        } else {
+            pcm_samples
+        };
+
+        let state = app.state::<AppState>();
+        let mut lock = state.stream.lock().unwrap();
+        let stream = lock
+            .as_mut()
+            .ok_or_else(|| "No active stream.".to_string())?;
+
+        stream
+            .add_audio(&pcm_16k, 16000)
+            .map_err(|e| e.to_string())?;
+        stream.poll(false).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+pub async fn stop_stream(app: AppHandle) -> Result<Transcript, String> {
+    tokio::task::spawn_blocking(move || -> Result<Transcript, String> {
+        let state = app.state::<AppState>();
+        let mut lock = state.stream.lock().unwrap();
+        let stream = lock
+            .take()
+            .ok_or_else(|| "No active stream to stop.".to_string())?;
+
+        stream.finalize().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -157,9 +236,9 @@ pub async fn transcribe_audio_file(
 
         let state = app.state::<AppState>();
         let lock = state.transcriber.lock().unwrap();
-        let transcriber = lock
-            .as_ref()
-            .ok_or_else(|| "Transcriber is not loaded yet. Please select or download a model.".to_string())?;
+        let transcriber = lock.as_ref().ok_or_else(|| {
+            "Transcriber is not loaded yet. Please select or download a model.".to_string()
+        })?;
 
         transcriber
             .transcribe(&pcm_data, 16000)
@@ -191,9 +270,9 @@ pub async fn transcribe_pcm_samples(
 
         let state = app.state::<AppState>();
         let lock = state.transcriber.lock().unwrap();
-        let transcriber = lock
-            .as_ref()
-            .ok_or_else(|| "Transcriber is not loaded yet. Please select or download a model.".to_string())?;
+        let transcriber = lock.as_ref().ok_or_else(|| {
+            "Transcriber is not loaded yet. Please select or download a model.".to_string()
+        })?;
 
         transcriber
             .transcribe(&pcm_16k, 16000)
