@@ -1,9 +1,13 @@
 //! Transcribe with speaker identification (diarization) enabled.
 //!
 //! Passing `identify_speakers = true` via [`TranscriberOptions::with_identify_speakers`]
-//! asks Moonshine to attribute spans of each line to distinct speakers. The
-//! results appear as [`SpeakerSpan`] entries on every [`TranscriptLine`],
-//! carrying a `speaker_index`, timing, and the character range within the line.
+//! asks Moonshine to attribute spans of each line to distinct speakers.
+//!
+//! Note: Speaker identification requires two diarization models (`segmentation.ort`
+//! and `embedding.ort`, ~8.2 MB total). `moonshine-rs` automatically fetches and
+//! caches these models on first use into your local OS cache directory. The results
+//! appear as [`SpeakerSpan`] entries on every [`TranscriptLine`], carrying a `speaker_index`,
+//! timing, and character ranges.
 //!
 //! Run:
 //!

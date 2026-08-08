@@ -113,7 +113,7 @@ You can pin a specific upstream release with the `MOONSHINE_VERSION` environment
 variable (defaults to the version this crate was tested against):
 
 ```bash
-MOONSHINE_VERSION=v0.1.0 cargo build
+MOONSHINE_VERSION=v0.1.1 cargo build
 ```
 
 ### Advanced: build from source (fully static, all platforms)

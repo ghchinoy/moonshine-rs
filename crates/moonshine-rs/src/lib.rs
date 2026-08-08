@@ -38,8 +38,11 @@
 //! [`symphonia`]: https://docs.rs/symphonia
 //! [`rubato`]: https://docs.rs/rubato
 
+use std::env;
 use std::ffi::{CStr, CString};
-use std::path::Path;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::Mutex;
 
@@ -144,15 +147,36 @@ impl TranscriberOptions {
         self
     }
 
+    /// Returns the option value for a given key, if set.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.options.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    }
+
     /// Selects the ONNX Runtime execution providers (e.g. `"CPU"`).
     pub fn with_ort_providers(self, providers: &str) -> Self {
         self.set("ort_providers", providers)
+    }
+
+    /// Controls whether to re-decode the previous hypothesis on streaming updates using
+    /// speculative decoding (default `true` upstream).
+    pub fn with_speculative_decoding(self, enable: bool) -> Self {
+        self.set("use_speculative_decoding", if enable { "true" } else { "false" })
     }
 
     /// Enables speaker identification (diarization). See the
     /// `speaker_diarization` example.
     pub fn with_identify_speakers(self, enable: bool) -> Self {
         self.set("identify_speakers", if enable { "true" } else { "false" })
+    }
+
+    /// Sets the directory containing speaker diarization models (`segmentation.ort` and
+    /// `embedding.ort`).
+    ///
+    /// If speaker identification is enabled via [`with_identify_speakers`](Self::with_identify_speakers)
+    /// and no explicit directory is set, `moonshine-rs` will download the diarization models
+    /// automatically into the local cache on first use.
+    pub fn with_diarization_model_dir(self, path: impl AsRef<Path>) -> Self {
+        self.set("diarization_model_dir", path.as_ref().to_string_lossy())
     }
 
     /// Sets the path to an optional spelling model.
@@ -273,6 +297,15 @@ impl Transcriber {
         arch: ModelArch,
         options: Option<&TranscriberOptions>,
     ) -> Result<Self> {
+        let mut effective_opts = options.cloned().unwrap_or_default();
+
+        if effective_opts.get("identify_speakers") == Some("true")
+            && effective_opts.get("diarization_model_dir").is_none()
+        {
+            let diarization_dir = ensure_diarization_models_downloaded()?;
+            effective_opts = effective_opts.with_diarization_model_dir(diarization_dir);
+        }
+
         let path_str = path
             .as_ref()
             .to_str()
@@ -283,30 +316,24 @@ impl Transcriber {
 
         let c_path = CString::new(path_str)?;
 
-        let (c_options, _c_strings) = if let Some(opts) = options {
-            let mut raw_opts = Vec::with_capacity(opts.options.len());
-            let mut strings = Vec::with_capacity(opts.options.len() * 2);
+        let mut raw_opts = Vec::with_capacity(effective_opts.options.len());
+        let mut strings = Vec::with_capacity(effective_opts.options.len() * 2);
 
-            for (k, v) in &opts.options {
-                let ck = CString::new(k.as_str())?;
-                let cv = CString::new(v.as_str())?;
-                raw_opts.push(sys::moonshine_option_t {
-                    name: ck.as_ptr(),
-                    value: cv.as_ptr(),
-                });
-                strings.push(ck);
-                strings.push(cv);
-            }
+        for (k, v) in &effective_opts.options {
+            let ck = CString::new(k.as_str())?;
+            let cv = CString::new(v.as_str())?;
+            raw_opts.push(sys::moonshine_option_t {
+                name: ck.as_ptr(),
+                value: cv.as_ptr(),
+            });
+            strings.push(ck);
+            strings.push(cv);
+        }
 
-            (raw_opts, strings)
-        } else {
-            (Vec::new(), Vec::new())
-        };
-
-        let opts_ptr = if c_options.is_empty() {
+        let opts_ptr = if raw_opts.is_empty() {
             ptr::null()
         } else {
-            c_options.as_ptr()
+            raw_opts.as_ptr()
         };
 
         let handle = unsafe {
@@ -314,7 +341,7 @@ impl Transcriber {
                 c_path.as_ptr(),
                 arch.as_u32(),
                 opts_ptr,
-                c_options.len() as u64,
+                raw_opts.len() as u64,
                 sys::MOONSHINE_HEADER_VERSION as i32,
             )
         };
@@ -640,6 +667,129 @@ pub fn get_stt_catalog() -> Result<String> {
     Ok(json_str)
 }
 
+/// Resolves the download manifest (CDN URLs, file sizes, CRC32C checksums) for
+/// the speaker diarization models (`segmentation.ort` and `embedding.ort`) as a JSON string.
+pub fn get_diarization_dependencies() -> Result<String> {
+    let mut out_json: *mut std::os::raw::c_char = ptr::null_mut();
+
+    let ret = unsafe { sys::moonshine_get_diarization_dependencies(&mut out_json) };
+
+    if ret != 0 {
+        return Err(Error::ApiError {
+            code: ret,
+            message: error_string(ret),
+        });
+    }
+
+    if out_json.is_null() {
+        return Err(Error::NullPointer);
+    }
+
+    let json_str = unsafe {
+        let str_slice = CStr::from_ptr(out_json).to_string_lossy().into_owned();
+        sys::moonshine_free_buffer(out_json as *mut std::ffi::c_void);
+        str_slice
+    };
+
+    Ok(json_str)
+}
+
+/// Ensures that speaker diarization models (`segmentation.ort` and `embedding.ort`)
+/// are present on disk, downloading them automatically from the official CDN manifest
+/// into the local cache directory if missing.
+///
+/// Returns the path to the directory containing the downloaded diarization models.
+pub fn ensure_diarization_models_downloaded() -> Result<PathBuf> {
+    let cache_dir = if let Ok(custom) = env::var("MOONSHINE_RS_CACHE_DIR") {
+        PathBuf::from(custom).join("diarization")
+    } else if let Some(user_cache) = dirs::cache_dir() {
+        user_cache.join("moonshine-rs").join("diarization")
+    } else {
+        env::temp_dir().join("moonshine-rs").join("diarization")
+    };
+
+    fs::create_dir_all(&cache_dir).map_err(|e| Error::ApiError {
+        code: -1,
+        message: format!("Failed to create diarization cache directory: {e}"),
+    })?;
+
+    let seg_path = cache_dir.join("segmentation.ort");
+    let emb_path = cache_dir.join("embedding.ort");
+
+    if seg_path.exists()
+        && fs::metadata(&seg_path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+        && emb_path.exists()
+        && fs::metadata(&emb_path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+    {
+        return Ok(cache_dir);
+    }
+
+    let manifest_json = get_diarization_dependencies()?;
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_json).map_err(|e| Error::ApiError {
+            code: -1,
+            message: format!("Failed to parse diarization manifest JSON: {e}"),
+        })?;
+
+    let groups = manifest["groups"]
+        .as_array()
+        .ok_or_else(|| Error::ApiError {
+            code: -1,
+            message: "Diarization manifest missing `groups` array".to_string(),
+        })?;
+
+    for group in groups {
+        let files = group["files"].as_array().ok_or_else(|| Error::ApiError {
+            code: -1,
+            message: "Diarization group missing `files` array".to_string(),
+        })?;
+
+        for file in files {
+            let name = file["name"].as_str().ok_or_else(|| Error::ApiError {
+                code: -1,
+                message: "Diarization file entry missing `name`".to_string(),
+            })?;
+            let url = file["url"].as_str().ok_or_else(|| Error::ApiError {
+                code: -1,
+                message: "Diarization file entry missing `url`".to_string(),
+            })?;
+            let expected_size = file["size"].as_u64().unwrap_or(0);
+
+            let dest = cache_dir.join(name);
+            if dest.exists() {
+                let have = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+                if expected_size == 0 || have == expected_size {
+                    continue;
+                }
+            }
+
+            let resp = ureq::get(url).call().map_err(|e| Error::ApiError {
+                code: -1,
+                message: format!("Failed to download diarization model from {url}: {e}"),
+            })?;
+
+            let mut bytes = Vec::new();
+            resp.into_reader()
+                .read_to_end(&mut bytes)
+                .map_err(|e| Error::ApiError {
+                    code: -1,
+                    message: format!("Failed to read diarization model bytes from {url}: {e}"),
+                })?;
+
+            fs::write(&dest, &bytes).map_err(|e| Error::ApiError {
+                code: -1,
+                message: format!("Failed to write diarization model to {}: {e}", dest.display()),
+            })?;
+        }
+    }
+
+    Ok(cache_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -676,5 +826,24 @@ mod tests {
     fn test_stt_catalog() {
         let catalog = get_stt_catalog().unwrap();
         assert!(catalog.contains("English"));
+    }
+
+    #[test]
+    fn test_diarization_dependencies() {
+        let deps = get_diarization_dependencies().unwrap();
+        assert!(deps.contains("segmentation.ort"));
+        assert!(deps.contains("embedding.ort"));
+    }
+
+    #[test]
+    fn test_transcriber_options_get_and_speculative_decoding() {
+        let opts = TranscriberOptions::new()
+            .with_identify_speakers(true)
+            .with_speculative_decoding(false)
+            .with_diarization_model_dir("/tmp/test_dir");
+
+        assert_eq!(opts.get("identify_speakers"), Some("true"));
+        assert_eq!(opts.get("use_speculative_decoding"), Some("false"));
+        assert_eq!(opts.get("diarization_model_dir"), Some("/tmp/test_dir"));
     }
 }

@@ -22,7 +22,7 @@ and links them — no CMake, C++ compiler, or source checkout needed:
 cargo build
 ```
 
-Pin an upstream release tag with `MOONSHINE_VERSION` (e.g. `MOONSHINE_VERSION=v0.1.0`).
+Pin an upstream release tag with `MOONSHINE_VERSION` (e.g. `MOONSHINE_VERSION=v0.1.1`).
 Prebuilt linkage is static + self-contained on macOS (arm64), and dynamic
 (`.so` / `onnxruntime.dll`) on Linux and Windows.
 

@@ -344,8 +344,13 @@ MOONSHINE_EXPORT const char *moonshine_transcript_to_string(
    The `options` parameter is used to set any custom options for the
    transcriber. Recognized options include ``log_ort_run`` (bool),
    ``ort_providers`` (comma-separated execution provider names such as
-   ``CoreML,CPU`` on macOS or ``NNAPI,CPU`` on Android; default is CPU-only),
-   and ``coreml_cache_dir`` (directory for CoreML compiled model cache).
+   ``CoreML,CPU`` on macOS; default and recommendation is CPU-only, and the
+   iOS and Android libraries ship with no other choice — see
+   docs/execution-providers.md), and ``coreml_cache_dir`` (directory for the
+   CoreML compiled model cache on macOS).
+   Pass ``use_speculative_decoding`` (bool, default true) to control
+   speculative re-decode of the previous hypothesis on streaming updates
+   (set false to fall back to greedy redecode from BOS).
    Pass ``identify_speakers`` (bool, default false) to enable speaker
    diarization: each line then carries a ``speaker_spans`` array describing
    who spoke when, including UTF-8 character ranges into the line text.
@@ -436,6 +441,10 @@ MOONSHINE_EXPORT int32_t moonshine_load_transcriber_from_memory(
        ``streaming_config.json``, ``tokenizer.bin`` (all required), plus the
        optional ``decoder_kv_with_attention.ort`` when ``word_timestamps`` is
        set.
+     - Either kind also accepts ``spelling_cnn.ort``, and the two diarization
+       models ``segmentation.ort`` and ``embedding.ort``, which are required
+       when the ``identify_speakers`` option is set. Fetch those two with
+       moonshine_get_diarization_dependencies.
    Unrecognized keys are ignored, and missing required keys cause the load to
    fail.
 
@@ -671,22 +680,12 @@ MOONSHINE_EXPORT int32_t moonshine_transcribe_stream(
     int32_t transcriber_handle, int32_t stream_handle, uint32_t flags,
     struct transcript_t **out_transcript);
 
-/* ------------------------------ INTENT RECOGNIZER ------------------------- */
+/* ------------------------------ EMBEDDING MODEL --------------------------- */
 
-/* Supported embedding model architectures for intent recognition.           */
+/* Supported embedding model architectures.                                  */
 #define MOONSHINE_EMBEDDING_MODEL_ARCH_GEMMA_300M (0)
 
-/* Maximum number of intent matches returned by moonshine_get_closest_intents.
- */
-#define MOONSHINE_INTENT_MAX_MATCHES (6)
-
-/* One ranked intent match from moonshine_get_closest_intents. */
-struct moonshine_intent_match_t {
-  char *canonical_phrase;
-  float similarity;
-};
-
-/* Creates an intent recognizer from files on disk.
+/* Creates an embedding model from files on disk.
 
    `model_path` should be the path to the directory containing the embedding
    model files (ONNX model and tokenizer.bin).
@@ -697,21 +696,18 @@ struct moonshine_intent_match_t {
    `model_variant` specifies which model variant to load: "fp32", "fp16", "q8",
    "q4", or "q4f16". Pass NULL to use the default "q4" variant.
 
-   Similarity filtering is done per call in moonshine_get_closest_intents via
-   `tolerance_threshold`, not at construction time.
-
    Returns a non-negative handle on success, or a negative error code on
    failure. The error code can be converted to a human-readable string using
    moonshine_error_to_string.
 */
-MOONSHINE_EXPORT int32_t moonshine_create_intent_recognizer(
+MOONSHINE_EXPORT int32_t moonshine_create_embedding_model(
     const char *model_path, uint32_t model_arch, const char *model_variant);
 
-/* Creates an intent recognizer from in-memory model buffers.
+/* Creates an embedding model from in-memory model buffers.
 
    This mirrors moonshine_load_transcriber_from_memory_files and
    moonshine_create_tts_synthesizer_from_memory: `filenames[i]` is the canonical
-   asset filename (as listed by moonshine_get_intent_dependencies, e.g.
+   asset filename (as listed by moonshine_get_embedding_dependencies, e.g.
    `model_q4.ort` and `tokenizer.bin`) and `memory[i]` / `memory_sizes[i]` are
    the corresponding bytes. The embedding model must be a single self-contained
    all-in-one `.ort` file (no external-data sidecar); the tokenizer is
@@ -726,91 +722,30 @@ MOONSHINE_EXPORT int32_t moonshine_create_intent_recognizer(
    Returns a non-negative handle on success, or a negative error code on
    failure.
 */
-MOONSHINE_EXPORT int32_t moonshine_create_intent_recognizer_from_memory(
+MOONSHINE_EXPORT int32_t moonshine_create_embedding_model_from_memory(
     uint32_t model_arch, const char *model_variant, const char **filenames,
     uint64_t filenames_count, const uint8_t **memory,
     const uint64_t *memory_sizes, const struct moonshine_option_t *options,
     uint64_t options_count, int32_t moonshine_version);
 
-/* Frees an intent recognizer and all its resources. */
-MOONSHINE_EXPORT void moonshine_free_intent_recognizer(
-    int32_t intent_recognizer_handle);
+/* Frees an embedding model and all its resources. */
+MOONSHINE_EXPORT void moonshine_free_embedding_model(
+    int32_t embedding_model_handle);
 
-/* Registers a canonical intent phrase (no callback).
-
-   `embedding` is an optional pointer to an array of floats of size
-   `embedding_size`. If `embedding` is NULL, the embedding is calculated for the
-   canonical phrase.
-   `priority` affects how intents are ranked. If a higher priority intent is
-   within the tolerance threshold, it will be ranked above lower priority
-   intents, even if their similarity is higher.
-
-   Returns zero on success, or a non-zero error code on failure.
-*/
-MOONSHINE_EXPORT int32_t moonshine_register_intent(
-    int32_t intent_recognizer_handle, const char *canonical_phrase,
-    float *embedding, uint64_t embedding_size, int32_t priority);
-
-/* Unregisters an intent by its canonical phrase.
-   Returns zero on success, or a non-zero error code on failure.
-*/
-MOONSHINE_EXPORT int32_t moonshine_unregister_intent(
-    int32_t intent_recognizer_handle, const char *canonical_phrase);
-
-/* Synchronously ranks registered intents against `utterance`.
-
-   `tolerance_threshold` is the minimum similarity (0.0–1.0, inclusive) for a
-   candidate to appear in the results.
-
-   On success, returns MOONSHINE_ERROR_NONE, sets `*out_count` to the number
-   of matches (0 to MOONSHINE_INTENT_MAX_MATCHES), and sets `*out_matches` to a
-   heap-allocated array sorted by descending similarity. Each
-   `canonical_phrase` is a separate heap allocation. When `*out_count` is zero,
-   `*out_matches` is set to NULL.
-
-   On failure, returns a non-zero error code and sets `*out_matches` to NULL and
-   `*out_count` to zero.
-
-   Release results with moonshine_free_intent_matches.
-*/
-MOONSHINE_EXPORT int32_t moonshine_get_closest_intents(
-    int32_t intent_recognizer_handle, const char *utterance,
-    float tolerance_threshold, struct moonshine_intent_match_t **out_matches,
-    uint64_t *out_count);
-
-/* Frees an array returned by moonshine_get_closest_intents (safe on NULL /
-   zero count). */
-MOONSHINE_EXPORT void moonshine_free_intent_matches(
-    struct moonshine_intent_match_t *matches, uint64_t count);
-
-/* Gets the number of registered intents.
-   Returns the count on success (>= 0), or a negative error code on failure.
-*/
-MOONSHINE_EXPORT int32_t
-moonshine_get_intent_count(int32_t intent_recognizer_handle);
-
-/* Clears all registered intents.
-   Returns zero on success, or a non-zero error code on failure.
-*/
-MOONSHINE_EXPORT int32_t
-moonshine_clear_intents(int32_t intent_recognizer_handle);
-
-/* Calculates the intent embedding for a given sentence.
+/* Calculates the embedding for a given sentence.
 
    On success, ``*out_embedding`` is set to a heap-allocated array of floats and
    ``*out_embedding_size`` is set to the number of elements. Release the array
-   with ``moonshine_free_intent_embedding``.
+   with ``moonshine_free_embedding``.
 
    Returns zero on success, or a non-zero error code on failure.
 */
-MOONSHINE_EXPORT int32_t moonshine_calculate_intent_embedding(
-    int32_t intent_recognizer_handle, const char *sentence,
-    float **out_embedding, uint64_t *out_embedding_size,
-    const char *model_name);
+MOONSHINE_EXPORT int32_t moonshine_calculate_embedding(
+    int32_t embedding_model_handle, const char *sentence, float **out_embedding,
+    uint64_t *out_embedding_size, const char *model_name);
 
-/* Frees an intent embedding returned by moonshine_calculate_intent_embedding.
- */
-MOONSHINE_EXPORT void moonshine_free_intent_embedding(float *embedding);
+/* Frees an embedding returned by moonshine_calculate_embedding. */
+MOONSHINE_EXPORT void moonshine_free_embedding(float *embedding);
 
 /* Calculates the cosine similarity between two embedding vectors.
 
@@ -821,7 +756,7 @@ MOONSHINE_EXPORT void moonshine_free_intent_embedding(float *embedding);
    Returns zero on success, or a non-zero error code on failure.
 */
 MOONSHINE_EXPORT int32_t moonshine_calculate_embedding_distance(
-    int32_t intent_recognizer_handle, const float *embedding_a,
+    int32_t embedding_model_handle, const float *embedding_a,
     const float *embedding_b, uint64_t embedding_size, float *out_similarity);
 
 /* ------------------------------ SPEECH CLIPS --------------------------- */
@@ -840,19 +775,28 @@ struct moonshine_speech_clip_t {
   float speech_duration;
   /* Non-zero once a window with enough speech in it was found. */
   int32_t is_complete;
+  /* UTF-8 transcript of the clip when the TTS synthesizer owns a clone ASR
+     and the window was complete enough to refine. NULL otherwise. Allocated
+     with malloc; release with moonshine_free_buffer. */
+  char *transcript;
 };
 
 /* Finds the best short window of speech in a recording, for use as the
    reference clip in zero-shot voice cloning.
 
-   Runs the built-in voice-activity detector (no model files or downloads
-   required) over ``audio_data``, slides a window of ``clip_duration_seconds``
-   across the result, and returns the window with the most speech in it. If no
-   window contains at least ``minimum_speech_seconds`` of speech,
-   ``out_clip->is_complete`` is zero and no audio is returned; the caller should
-   record more and call again. This makes the function safe to call repeatedly
-   on a growing buffer, which is how the streaming voice-capture APIs in the
-   language bindings are built.
+   ``tts_synthesizer_handle`` must be a valid synthesizer from
+   ``moonshine_create_tts_synthesizer_*``. The call always runs the built-in
+   voice-activity detector (no download) over ``audio_data``, slides a window
+   of ``clip_duration_seconds`` across the result, and returns the window with
+   the most speech. If no window contains at least ``minimum_speech_seconds``
+   of speech, ``out_clip->is_complete`` is zero and no audio is returned; the
+   caller should record more and call again (streaming capture).
+
+   Extract is VAD-only and stays cheap enough for the capture loop. When
+   ZipVoice is later created without ``zipvoice_clone_transcript``, the owned
+   clone ASR (from ``g2p_root/clone_asr/`` or ``clone_asr/...`` memory keys)
+   refines the clip and fills the transcript once — see
+   ``moonshine_get_tts_dependencies``.
 
    The returned clip is always 16 kHz mono regardless of ``sample_rate``.
 
@@ -860,14 +804,15 @@ struct moonshine_speech_clip_t {
      ``clip_duration_seconds``  length of the window (default 4).
      ``minimum_speech_seconds`` speech required in it (default 2).
      ``vad_threshold``          speech probability threshold (default 0.5).
+     ``tail_pad_seconds``       extra audio after the VAD window (default 0).
 
    Returns zero on success, or a non-zero error code on failure. The error code
    can be converted to a human-readable string using moonshine_error_to_string.
 */
 MOONSHINE_EXPORT int32_t moonshine_extract_speech_clip(
     const float *audio_data, uint64_t audio_length, int32_t sample_rate,
-    const struct moonshine_option_t *options, uint64_t options_count,
-    struct moonshine_speech_clip_t *out_clip);
+    int32_t tts_synthesizer_handle, const struct moonshine_option_t *options,
+    uint64_t options_count, struct moonshine_speech_clip_t *out_clip);
 
 /* ------------------------------ TEXT TO SPEECH ------------------------- */
 
@@ -891,6 +836,15 @@ MOONSHINE_EXPORT int32_t moonshine_extract_speech_clip(
    ``zipvoice/vocoder.ort``, ``zipvoice/tokens.txt``,
    ``zipvoice/model.json``) are resolved under ``g2p_root`` or supplied in
    memory. English only for now.
+
+   For ZipVoice cloning, download TTS dependencies (including the
+   ``role":"clone_asr"`` group) under ``g2p_root`` so ``g2p_root/clone_asr/``
+   holds the catalog STT, or pass ``clone_asr/<stt-filename>`` memory keys to
+   ``moonshine_create_tts_synthesizer_from_memory``. The library owns that ASR
+   for the synthesizer lifetime and uses it inside
+   ``moonshine_extract_speech_clip``. When a caller-supplied
+   ``zipvoice/clone_audio`` clip has no ``zipvoice_clone_transcript``, the clip
+   is refined with that ASR at create time.
 */
 MOONSHINE_EXPORT int32_t moonshine_create_tts_synthesizer_from_files(
     const char *language, const char **filenames, uint64_t filenames_count,
@@ -903,7 +857,7 @@ MOONSHINE_EXPORT int32_t moonshine_create_tts_synthesizer_from_files(
    moonshine_error_to_string.
 
    ``filenames[i]`` is the canonical ``MoonshineTTSOptions::files`` key (e.g.
-   ``kokoro/model.onnx``, ``kokoro/config.json``,
+   ``kokoro/model.ort``, ``kokoro/config.json``,
    ``kokoro/voices/af_heart.kokorovoice``,
    ``piper/onnx``, ``piper/onnx.json``, ``zipvoice/text_encoder.ort``,
    ``zipvoice/fm_decoder.ort``, ``zipvoice/vocoder.ort``,
@@ -911,9 +865,9 @@ MOONSHINE_EXPORT int32_t moonshine_create_tts_synthesizer_from_files(
    caller-supplied reference clip is passed as key ``zipvoice/clone_audio``
    (raw little-endian float32 mono PCM); set ``zipvoice_clone_sample_rate`` and,
    optionally, ``zipvoice_clone_transcript``. When the transcript is omitted,
-   pass ``zipvoice_asr_transcriber_handle=<handle>`` (an existing transcriber
-   from ``moonshine_create_transcriber_*``) to auto-transcribe the clip with
-   Moonshine ASR. When ``memory[i]`` is non-NULL and
+   supply ``clone_asr/<stt-filename>`` keys (from the ZipVoice TTS dependency
+   ``clone_asr`` group) so the library can refine and auto-transcribe the clip
+   with its owned ASR. When ``memory[i]`` is non-NULL and
    ``memory_sizes[i]`` > 0, that buffer is used as the asset bytes; the library
    does not copy it—keep the buffers valid until
    ``moonshine_free_tts_synthesizer``. When ``memory[i]`` is NULL or
@@ -957,18 +911,25 @@ MOONSHINE_EXPORT int32_t moonshine_get_g2p_dependencies(
     const char *languages, const struct moonshine_option_t *options,
     uint64_t options_count, char **out_dependencies_json);
 
-/* Returns merged G2P + TTS vocoder canonical asset keys as a JSON array of
-   strings (flat list).
+/* Returns merged G2P + TTS vocoder download dependencies as a JSON object with
+   a ``groups`` array (same shape as ``moonshine_get_stt_dependencies``). Each
+   group is ``{ "base_url", "files": [{name,url,size,checksum,checksum_type}]
+   }``.
    ``languages`` is comma-separated; empty or NULL means all known languages.
    ``options`` / ``options_count``: same entries as
    ``moonshine_create_tts_synthesizer_from_files``
-   (``voice`` with optional ``kokoro_`` / ``piper_`` prefix, ``g2p_root``,
-   ``piper_onnx``,
-   ``kokoro_model``, …; ``vocoder_engine`` / ``engine`` are ignored). Vocoder
-   keys follow Kokoro vs Piper selection and the requested ``voice`` like
-   ``MoonshineTTS``. On success,
-   ``*out_dependencies_json`` is a NUL-terminated JSON array; free with
-   ``free``.
+   (``voice`` with optional ``kokoro_`` / ``piper_`` / ``zipvoice_`` prefix,
+   ``g2p_root``, …). Vocoder keys follow Kokoro vs Piper vs ZipVoice selection.
+
+   When ``voice`` selects ZipVoice, an additional group with
+   ``"role":"clone_asr"`` lists the catalog-default STT for the language
+   (including the attention decoder for word timestamps). Local ``name``s are
+   prefixed ``clone_asr/``;
+   ``url``s point at the STT CDN. Bindings should download those files under
+   ``g2p_root/clone_asr/`` (or pass ``clone_asr/...`` memory keys on create).
+
+   On success, ``*out_dependencies_json`` is a NUL-terminated JSON object; free
+   with ``free``.
 */
 MOONSHINE_EXPORT int32_t moonshine_get_tts_dependencies(
     const char *languages, const struct moonshine_option_t *options,
@@ -994,9 +955,11 @@ MOONSHINE_EXPORT int32_t moonshine_get_tts_dependencies(
    or ``{"id":"<voice>","state":"missing"}``. Voice ids are prefixed with
    ``kokoro_`` or ``piper_``. Kokoro uses the upstream Kokoro-82M voice id
    catalog plus any extra ``*.kokorovoice`` in the bundle; Piper lists the
-   language default ONNX stem plus any ``*.onnx`` in the resolved voices
-   directory. ``found`` means the asset is on disk or supplied via the in-memory
-   file map like ``MoonshineTTS``. Free with ``free``.
+   language default voice stem plus every voice in the resolved voices
+   directory, in either shipped form (``<stem>.ort``, or the split
+   ``<stem>.model.ort`` plus ``<stem>.weights.ort`` pair). ``found`` means the
+   asset is on disk or supplied via the in-memory file map like
+   ``MoonshineTTS``. Free with ``free``.
 */
 MOONSHINE_EXPORT int32_t moonshine_get_tts_voices(
     const char *languages, const struct moonshine_option_t *options,
@@ -1049,9 +1012,9 @@ MOONSHINE_EXPORT int32_t moonshine_get_stt_dependencies(
     const char *language, const struct moonshine_option_t *options,
     uint64_t options_count, char **out_dependencies_json);
 
-/* Returns the download manifest for an intent-recognition embedding model as a
-   JSON object with the same shape as moonshine_get_stt_dependencies. Load the
-   downloaded directory with moonshine_create_intent_recognizer.
+/* Returns the download manifest for an embedding model as a JSON object with
+   the same shape as moonshine_get_stt_dependencies. Load the downloaded
+   directory with moonshine_create_embedding_model.
 
    ``model_name`` is an embedding model id (for example
    ``"embeddinggemma-300m"``); pass NULL or an empty string to use the default
@@ -1068,9 +1031,29 @@ MOONSHINE_EXPORT int32_t moonshine_get_stt_dependencies(
    moonshine_get_stt_dependencies) and returns ``MOONSHINE_ERROR_NONE``; free
    with ``free``. On failure (unknown model or variant) returns a non-zero
    error code and sets ``*out_dependencies_json`` to NULL. */
-MOONSHINE_EXPORT int32_t moonshine_get_intent_dependencies(
+MOONSHINE_EXPORT int32_t moonshine_get_embedding_dependencies(
     const char *model_name, const struct moonshine_option_t *options,
     uint64_t options_count, char **out_dependencies_json);
+
+/* Returns the download manifest for the speaker diarization models as a JSON
+   object with the same shape as moonshine_get_stt_dependencies. Fetch these
+   whenever you intend to pass ``identify_speakers=true`` to a transcriber, and
+   point the transcriber at them with the ``diarization_model_dir`` option (or
+   supply them as ``segmentation.ort`` / ``embedding.ort`` entries to
+   moonshine_load_transcriber_from_memory_files).
+
+   There is one set of diarization models and it has no variants, so this takes
+   no arguments beyond the output pointer. The manifest is a single group of two
+   files totalling about 8.2 MB.
+
+   These models were compiled into the library before version 26.8; a
+   transcriber built with ``identify_speakers=true`` and no diarization models
+   now fails to load rather than falling back. See docs/diarization-models.md.
+
+   The buffer is allocated with ``malloc``; release it with ``free``. Returns
+   ``MOONSHINE_ERROR_NONE`` on success. */
+MOONSHINE_EXPORT int32_t
+moonshine_get_diarization_dependencies(char **out_dependencies_json);
 
 /* Returns the full speech-to-text model catalog as a JSON object, so bindings
    can build language/model pickers and resolve defaults without their own copy
@@ -1081,7 +1064,7 @@ MOONSHINE_EXPORT int32_t moonshine_get_intent_dependencies(
    ``MOONSHINE_ERROR_NONE`` on success. */
 MOONSHINE_EXPORT int32_t moonshine_get_stt_catalog(char **out_catalog_json);
 
-/* Returns the full intent-recognition embedding model catalog as a JSON object.
+/* Returns the full text embedding model catalog as a JSON object.
    The shape is:
      ``{"models":[{"name":"embeddinggemma-300m","english_name":"Embedding Gemma
    300M","download_url":"https://...","variants":["q4",
@@ -1142,13 +1125,17 @@ MOONSHINE_EXPORT int32_t moonshine_phonemes_to_speech(
    ``MoonshineG2POptions::files`` in the C++ API (for example
    ``en_us/dict_filtered_heteronyms.tsv``,
    ``zh_hans/roberta_chinese_base_upos_onnx/meta.json``,
-   ``zh_hans/roberta_chinese_base_upos_onnx/model.onnx``,
-   ``en_us/g2p-config.json``, ``en_us/oov/model.onnx``,
+   ``zh_hans/roberta_chinese_base_upos_onnx/model.model.ort``,
+   ``en_us/g2p-config.json``, ``en_us/oov/model.ort``,
    ``en_us/oov/onnx-config.json``). Japanese and Arabic tok-POS / diacritizer
    bundles use the same pattern under ``ja/...`` and
-   ``ar_msa/...``. Korean rule G2P uses ``ko/dict.tsv`` only. If an ONNX
-   model uses external data files (e.g. ``model.onnx.data``), those must sit
-   beside the ``.onnx`` on disk so the runtime can open them.
+   ``ar_msa/...``. Korean rule G2P uses ``ko/dict.tsv`` only. Models that ship
+   as a split ORT pair need both ``<stem>.model.ort`` and
+   ``<stem>.weights.ort`` present.
+
+   Every model is ORT-format. Moonshine cannot load a ``.onnx``: the wasm and
+   mobile runtimes are minimal ONNX Runtime builds with no ONNX parser
+   compiled in. Convert one with ``scripts/convert-models-to-ort.py``.
 */
 MOONSHINE_EXPORT int32_t moonshine_create_grapheme_to_phonemizer_from_files(
     const char *language, const char **filenames, uint64_t filenames_count,
@@ -1167,14 +1154,17 @@ MOONSHINE_EXPORT int32_t moonshine_create_grapheme_to_phonemizer_from_files(
    path relative to ``g2p_root``, like path-only map entries.
 
    Register every file the engine needs: language lexicon ``dict.tsv`` paths,
-   English ``g2p-config.json`` and OOV ONNX keys under ``en_us/oov/``, and
-   for ONNX bundles the ``meta.json``, ``vocab.txt``, ``tokenizer_config.json``,
-   and ``model.onnx`` keys under the bundle directory key. English OOV overrides
-   use ``oov_onnx_override`` for the ``.onnx`` bytes and ``oov_onnx_config`` for
-   the merged JSON config UTF-8 text. Models split across ``model.onnx`` plus
-   external weight files must be supplied as a single self-contained ``.onnx``
-   buffer (or remain on disk via the path fallback) so the runtime does not
-   need a sidecar ``.data`` file.
+   English ``g2p-config.json`` and the OOV model keys under ``en_us/oov/``, and
+   for model bundles the ``meta.json``, ``vocab.txt``,
+   ``tokenizer_config.json``, and ``model.ort`` keys under the bundle directory
+   key (or both halves of a split pair). English OOV overrides use
+   ``oov_onnx_override`` for the model bytes and ``oov_onnx_config`` for the
+   merged JSON config UTF-8 text; those key names predate the move to ORT and
+   are kept for compatibility, but the bytes must be ORT-format.
+
+   Every model buffer must be a self-contained ORT model. Moonshine cannot
+   load a ``.onnx``, and there is no support for a sidecar weights file:
+   convert with ``scripts/convert-models-to-ort.py``.
 */
 MOONSHINE_EXPORT int32_t moonshine_create_grapheme_to_phonemizer_from_memory(
     const char *language, const char **filenames,

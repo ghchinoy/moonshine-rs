@@ -241,7 +241,8 @@ Pass custom configuration keys to the engine:
 ```rust
 let options = TranscriberOptions::new()
     .with_ort_providers("CPU")
-    .with_identify_speakers(false);
+    .with_identify_speakers(true) // auto-downloads diarization models (~8.2MB) into local cache on first use
+    .with_speculative_decoding(true); // streaming hypothesis re-decoding (default true)
 ```
 
 #### `Transcriber` Struct
