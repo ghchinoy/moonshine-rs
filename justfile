@@ -43,9 +43,11 @@ example name args="":
 examples:
     cargo build --examples -p moonshine-rs
 
-# Download the tiny-streaming model into {{streaming_model_dir}}.
-download-streaming dir=streaming_model_dir:
-    cargo run --example download_model -p moonshine-rs -- {{dir}} en tiny-streaming
+# Download a streaming model into {{streaming_model_dir}}.
+# Usage: `just download-streaming arch=medium-streaming dir=./models/medium-streaming`
+# Valid arch values: tiny-streaming (default), small-streaming, medium-streaming, base-streaming (unpublished upstream).
+download-streaming arch="tiny-streaming" dir=streaming_model_dir:
+    cargo run --example download_model -p moonshine-rs -- {{dir}} en {{arch}}
 
 # Run the live microphone streaming terminal demo. Usage: `just stream-cli [model_dir]`
 stream-cli dir=streaming_model_dir:

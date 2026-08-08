@@ -28,17 +28,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!();
         eprintln!("  OUTPUT_DIR  Directory to download the model files into.");
         eprintln!("  LANGUAGE    STT language code (default: en).");
-        eprintln!("  ARCH        Model architecture (tiny, tiny-streaming, base, base-streaming; default: tiny).");
+        eprintln!("  ARCH        Model architecture: tiny, base, tiny-streaming, small-streaming,");
+        eprintln!("              medium-streaming, base-streaming (default: tiny).");
+        eprintln!("              NOTE: base-streaming is not yet published in the \"en\" catalog upstream");
+        eprintln!("              (see https://github.com/moonshine-ai/moonshine/issues/214).");
         std::process::exit(2);
     }
 
     let out_dir = PathBuf::from(&args[1]);
     let language = args.get(2).map(String::as_str).unwrap_or("en");
-    let arch = match args.get(3).map(String::as_str).unwrap_or("tiny") {
-        "tiny-streaming" | "tinystreaming" => ModelArch::TinyStreaming,
-        "base" => ModelArch::Base,
-        "base-streaming" | "basestreaming" => ModelArch::BaseStreaming,
-        _ => ModelArch::Tiny,
+    let arch = match args.get(3).map(String::as_str) {
+        None => ModelArch::Tiny,
+        Some("tiny") => ModelArch::Tiny,
+        Some("base") => ModelArch::Base,
+        Some("tiny-streaming") | Some("tinystreaming") => ModelArch::TinyStreaming,
+        Some("small-streaming") | Some("smallstreaming") => ModelArch::SmallStreaming,
+        Some("medium-streaming") | Some("mediumstreaming") => ModelArch::MediumStreaming,
+        Some("base-streaming") | Some("basestreaming") => ModelArch::BaseStreaming,
+        Some(other) => {
+            eprintln!(
+                "Error: Unknown ARCH \"{other}\". Valid values: tiny, base, tiny-streaming, small-streaming, medium-streaming, base-streaming."
+            );
+            std::process::exit(2);
+        }
     };
 
     fs::create_dir_all(&out_dir)?;

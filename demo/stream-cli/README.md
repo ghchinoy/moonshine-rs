@@ -6,16 +6,18 @@ A real-time terminal application demonstrating live microphone audio capture and
 
 ### 1. Download a Streaming Model
 
-Download the `tiny-streaming` model using the built-in `download_model` example:
+Download a streaming model (e.g. `tiny-streaming`, `small-streaming`, or `medium-streaming`) using the built-in `download_model` example:
 
 ```bash
 cargo run --example download_model -p moonshine-rs -- ./models/tiny-streaming en tiny-streaming
 ```
 
-Or using [`just`](https://github.com/casey/just):
+Or using [`just`](https://github.com/casey/just) (defaults to `tiny-streaming`, or pass `arch=small-streaming` / `arch=medium-streaming`):
 
 ```bash
 just download-streaming
+# Or to download medium-streaming:
+just download-streaming arch=medium-streaming dir=./models/medium-streaming
 ```
 
 ### 2. Run the Stream CLI
