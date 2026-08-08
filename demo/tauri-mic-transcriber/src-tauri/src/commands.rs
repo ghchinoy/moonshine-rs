@@ -1,18 +1,87 @@
+use arboard::Clipboard;
+use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::audio_viz::AudioVisualizer;
 use moonshine_rs::{
     ModelArch, OwnedTranscriberStream, Transcriber, TranscriberOptions, Transcript,
 };
 
-#[derive(Default)]
 pub struct AppState {
     pub transcriber: Mutex<Option<Arc<Transcriber>>>,
     pub stream: Mutex<Option<OwnedTranscriberStream>>,
+    pub last_activity: AtomicU64,
+    pub idle_monitor_running: AtomicBool,
+    pub auto_paste_enabled: AtomicBool,
+    pub visualizer: AudioVisualizer,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            transcriber: Mutex::new(None),
+            stream: Mutex::new(None),
+            last_activity: AtomicU64::new(current_timestamp_secs()),
+            idle_monitor_running: AtomicBool::new(false),
+            auto_paste_enabled: AtomicBool::new(true),
+            visualizer: AudioVisualizer::new(),
+        }
+    }
+}
+
+impl AppState {
+    pub fn lock_transcriber(&self) -> std::sync::MutexGuard<'_, Option<Arc<Transcriber>>> {
+        self.transcriber.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn lock_stream(&self) -> std::sync::MutexGuard<'_, Option<OwnedTranscriberStream>> {
+        self.stream.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn touch_activity(&self) {
+        self.last_activity
+            .store(current_timestamp_secs(), Ordering::SeqCst);
+    }
+}
+
+fn current_timestamp_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+pub fn ensure_idle_monitor(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if !state.idle_monitor_running.swap(true, Ordering::SeqCst) {
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                let state = app_handle.state::<AppState>();
+                let now = current_timestamp_secs();
+                let last = state.last_activity.load(Ordering::SeqCst);
+
+                // 300s = 5 minutes idle timeout
+                if now.saturating_sub(last) >= 300 {
+                    let stream_lock = state.lock_stream();
+                    let mut transcriber_lock = state.lock_transcriber();
+                    if stream_lock.is_none() && transcriber_lock.is_some() {
+                        println!("[Idle Monitor] Unloading transcriber after 5m inactivity");
+                        *transcriber_lock = None;
+                        let _ = app_handle.emit("model-unloaded", "Unloaded due to 5m inactivity");
+                    }
+                }
+            }
+        });
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +197,7 @@ pub async fn download_model_files(
 
 #[tauri::command]
 pub fn load_transcriber(
+    app: AppHandle,
     state: State<'_, AppState>,
     model_dir: String,
     arch_u32: u32,
@@ -147,8 +217,11 @@ pub fn load_transcriber(
         .map_err(|e| e.to_string())?;
 
     let handle = transcriber.handle();
-    let mut lock = state.transcriber.lock().unwrap();
+    let mut lock = state.lock_transcriber();
     *lock = Some(Arc::new(transcriber));
+    state.touch_activity();
+
+    ensure_idle_monitor(&app);
 
     Ok(format!(
         "Successfully loaded transcriber (handle {})",
@@ -158,7 +231,7 @@ pub fn load_transcriber(
 
 #[tauri::command]
 pub fn start_stream(state: State<'_, AppState>) -> Result<String, String> {
-    let lock = state.transcriber.lock().unwrap();
+    let lock = state.lock_transcriber();
     let transcriber = lock
         .as_ref()
         .ok_or_else(|| "Transcriber is not loaded yet.".to_string())?
@@ -169,8 +242,9 @@ pub fn start_stream(state: State<'_, AppState>) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     let handle = stream.handle();
 
-    let mut stream_lock = state.stream.lock().unwrap();
+    let mut stream_lock = state.lock_stream();
     *stream_lock = Some(stream);
+    state.touch_activity();
 
     Ok(format!("Stream started (handle {})", handle))
 }
@@ -196,7 +270,13 @@ pub async fn feed_stream_pcm(
         };
 
         let state = app.state::<AppState>();
-        let mut lock = state.stream.lock().unwrap();
+        state.touch_activity();
+
+        // Calculate FFT audio visualizer buckets and emit event to all windows
+        let buckets = state.visualizer.compute_buckets(&pcm_16k);
+        let _ = app.emit("mic-level", buckets.to_vec());
+
+        let mut lock = state.lock_stream();
         let stream = lock
             .as_mut()
             .ok_or_else(|| "No active stream.".to_string())?;
@@ -204,7 +284,12 @@ pub async fn feed_stream_pcm(
         stream
             .add_audio(&pcm_16k, 16000)
             .map_err(|e| e.to_string())?;
-        stream.poll(false).map_err(|e| e.to_string())
+        let transcript = stream.poll(false).map_err(|e| e.to_string())?;
+
+        // Emit stream update to all windows (main + overlay)
+        let _ = app.emit("stream-update", transcript.clone());
+
+        Ok(transcript)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -214,12 +299,25 @@ pub async fn feed_stream_pcm(
 pub async fn stop_stream(app: AppHandle) -> Result<Transcript, String> {
     tokio::task::spawn_blocking(move || -> Result<Transcript, String> {
         let state = app.state::<AppState>();
-        let mut lock = state.stream.lock().unwrap();
+        state.touch_activity();
+
+        let mut lock = state.lock_stream();
         let stream = lock
             .take()
             .ok_or_else(|| "No active stream to stop.".to_string())?;
 
-        stream.finalize().map_err(|e| e.to_string())
+        let transcript = stream.finalize().map_err(|e| e.to_string())?;
+        let full_text = transcript.text();
+
+        // Emit final transcript update
+        let _ = app.emit("stream-final", transcript.clone());
+
+        // Auto-paste if enabled and text is non-empty
+        if state.auto_paste_enabled.load(Ordering::SeqCst) && !full_text.trim().is_empty() {
+            let _ = paste_text_to_active_app(&full_text);
+        }
+
+        Ok(transcript)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -235,7 +333,9 @@ pub async fn transcribe_audio_file(
             .map_err(|e| format!("Failed to decode/resample audio file: {}", e))?;
 
         let state = app.state::<AppState>();
-        let lock = state.transcriber.lock().unwrap();
+        state.touch_activity();
+
+        let lock = state.lock_transcriber();
         let transcriber = lock.as_ref().ok_or_else(|| {
             "Transcriber is not loaded yet. Please select or download a model.".to_string()
         })?;
@@ -269,15 +369,75 @@ pub async fn transcribe_pcm_samples(
         };
 
         let state = app.state::<AppState>();
-        let lock = state.transcriber.lock().unwrap();
+        state.touch_activity();
+
+        let lock = state.lock_transcriber();
         let transcriber = lock.as_ref().ok_or_else(|| {
             "Transcriber is not loaded yet. Please select or download a model.".to_string()
         })?;
 
-        transcriber
+        let transcript = transcriber
             .transcribe(&pcm_16k, 16000)
-            .map_err(|e| format!("Transcription error: {}", e))
+            .map_err(|e| format!("Transcription error: {}", e))?;
+
+        let full_text = transcript.text();
+        if state.auto_paste_enabled.load(Ordering::SeqCst) && !full_text.trim().is_empty() {
+            let _ = paste_text_to_active_app(&full_text);
+        }
+
+        Ok(transcript)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+pub fn copy_to_clipboard(text: String) -> Result<(), String> {
+    copy_text_to_clipboard(&text)
+}
+
+#[tauri::command]
+pub fn paste_text(text: String) -> Result<(), String> {
+    paste_text_to_active_app(&text)
+}
+
+#[tauri::command]
+pub fn toggle_auto_paste(state: State<'_, AppState>, enable: bool) -> bool {
+    state.auto_paste_enabled.store(enable, Ordering::SeqCst);
+    enable
+}
+
+#[tauri::command]
+pub fn toggle_overlay(app: AppHandle) -> Result<bool, String> {
+    crate::overlay::toggle_overlay_window(&app)
+}
+
+pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
+    let mut cb = Clipboard::new().map_err(|e| format!("Clipboard error: {}", e))?;
+    cb.set_text(text)
+        .map_err(|e| format!("Clipboard set error: {}", e))
+}
+
+pub fn paste_text_to_active_app(text: &str) -> Result<(), String> {
+    copy_text_to_clipboard(text)?;
+    std::thread::sleep(Duration::from_millis(150));
+
+    let mut enigo =
+        Enigo::new(&Settings::default()).map_err(|e| format!("Enigo error: {:?}", e))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = enigo.key(Key::Meta, Direction::Press);
+        let _ = enigo.key(Key::Unicode('v'), Direction::Click);
+        let _ = enigo.key(Key::Meta, Direction::Release);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = enigo.key(Key::Control, Direction::Press);
+        let _ = enigo.key(Key::Unicode('v'), Direction::Click);
+        let _ = enigo.key(Key::Control, Direction::Release);
+    }
+
+    Ok(())
 }

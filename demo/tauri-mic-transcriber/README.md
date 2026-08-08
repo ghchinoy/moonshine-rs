@@ -1,13 +1,20 @@
 # Tauri v2 + Lit Web Components Demo App
 
-A minimal, cross-platform desktop application demonstrating on-device Speech-to-Text using [`moonshine-rs`](https://github.com/ghchinoy/moonshine-rs), Tauri v2, and Lit Web Components (TypeScript).
+A cross-platform desktop dictation application demonstrating on-device speech-to-text using [`moonshine-rs`](https://github.com/ghchinoy/moonshine-rs), Tauri v2, and Lit Web Components (TypeScript).
 
 ## Features
 
-- **1. Model Picker & In-App Downloader**: Browse local model directories or auto-download the `tiny-en` quantized model directly from `download.moonshine.ai` with live download progress.
-- **2. Live Microphone Dictation**: Capture audio from your microphone using Web Audio API and stream PCM samples to the `moonshine-rs` Rust backend.
-- **3. Multi-Format File Transcription**: Drag-and-drop or select any audio file (MP3, WAV, AAC, FLAC, OGG, M4A, CAF). Automatically decoded and resampled to 16kHz mono via `symphonia` and `rubato`.
-- **4. Transcript View**: Render formatted transcript lines with timestamps and a copy-to-clipboard button.
+- **1. Model Picker & In-App Downloader**: Browse local model directories or auto-download quantized models (`tiny-en`, `tiny-streaming-en`, `small-streaming-en`, `medium-streaming-en`) directly from `download.moonshine.ai` with live progress bars.
+- **2. Live Microphone Dictation & Global Hotkey**:
+  - Global Push-to-Talk / Toggle hotkey (`Option+Space` / `Alt+Space`) active system-wide.
+  - Real-time streaming PCM ingestion using `OwnedTranscriberStream`.
+- **3. Auto-Paste to Active App**: Automatically inserts transcribed text directly into the focused text area via simulated keystrokes (`enigo`), closing the loop for hands-free dictation.
+- **4. 16-Band FFT Waveform Visualizer**: Live log-spaced spectral energy bars computed via `rustfft` during microphone recording.
+- **5. Floating Dictation Overlay Window**: Always-on-top, borderless overlay window (`overlay.html`) displaying animated waveform levels and live streaming transcripts.
+- **6. Multi-Format File Transcription**: Drag-and-drop or select any audio file (MP3, WAV, AAC, FLAC, OGG, M4A). Automatically decoded and resampled to 16kHz mono via `symphonia` and `rubato`.
+- **7. Robust Resource Management**:
+  - Poisoned-mutex recovery on all state accesses.
+  - Automatic 5-minute idle model unloading to free up system RAM.
 
 ## Architecture
 
@@ -16,15 +23,20 @@ demo/tauri-mic-transcriber/
 ├── src/                          # Frontend (Lit Web Components + TypeScript)
 │   ├── components/
 │   │   ├── model-picker.ts       # Directory selection & in-app CDN downloader
-│   │   ├── mic-recorder.ts       # Web Audio API microphone capture
+│   │   ├── mic-recorder.ts       # Live mic capture, global hotkey listener & waveform
 │   │   ├── file-drop.ts          # Multi-format audio file drag-and-drop
-│   │   ├── transcript-view.ts    # Formatted line display & clipboard copy
+│   │   ├── transcript-view.ts    # Formatted line display, copy & auto-paste buttons
+│   │   ├── overlay-app.ts        # Floating overlay window UI (waveform + streaming text)
 │   │   └── demo-app.ts           # Main layout component
-│   └── styles.css
+│   ├── styles.css
+│   └── overlay-main.ts           # Overlay window entry script
+├── overlay.html                  # Always-on-top overlay page
 └── src-tauri/                    # Tauri v2 Backend (Rust)
     ├── src/
-    │   ├── main.rs               # Application entry & handler registration
-    │   └── commands.rs           # #[tauri::command] handlers invoking moonshine-rs
+    │   ├── main.rs               # App setup, global shortcut registration & command routing
+    │   ├── commands.rs           # #[tauri::command] handlers, auto-paste & idle unload
+    │   ├── audio_viz.rs          # 16-band log-spaced FFT calculation (rustfft)
+    │   └── overlay.rs            # Floating overlay window manager
     └── Cargo.toml                # Uses path dependency: moonshine-rs
 ```
 
@@ -34,7 +46,6 @@ demo/tauri-mic-transcriber/
 
 - Node.js ≥ 18 and `npm` or `pnpm`
 - Rust toolchain (edition 2021)
-- *(Optional)* Set `MOONSHINE_DIR` if you want to build `libmoonshine` from a local custom C++ source tree. Otherwise, prebuilt official release binaries are downloaded automatically.
 
 ### Commands
 
@@ -47,6 +58,8 @@ demo/tauri-mic-transcriber/
 2. **Run in development mode**:
    ```bash
    npx @tauri-apps/cli dev
+   # or from repo root:
+   just demo
    ```
 
 3. **Build standalone application**:

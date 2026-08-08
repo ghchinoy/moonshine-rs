@@ -1,9 +1,11 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 import "@material/web/button/filled-button.js";
 import "@material/web/button/outlined-button.js";
+import "@material/web/checkbox/checkbox.js";
 
 @customElement("moonshine-mic-recorder")
 export class MoonshineMicRecorder extends LitElement {
@@ -16,6 +18,7 @@ export class MoonshineMicRecorder extends LitElement {
       border: 1px solid var(--md-sys-color-outline-variant, #44464f);
       border-radius: 12px;
       padding: 20px;
+      box-sizing: border-box;
     }
 
     h2 {
@@ -25,11 +28,56 @@ export class MoonshineMicRecorder extends LitElement {
       margin: 0 0 12px 0;
     }
 
+    .waveform {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 36px;
+      margin: 12px 0;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 4px 8px;
+      box-sizing: border-box;
+    }
+
+    .bar {
+      flex: 1;
+      background: linear-gradient(180deg, #818cf8 0%, #4f46e5 100%);
+      border-radius: 2px;
+      min-height: 2px;
+      transition: height 0.05s ease-out;
+    }
+
+    .options-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 0.85rem;
+      color: var(--md-sys-color-on-surface-variant, #c5c6d0);
+    }
+
+    .hotkey-badge {
+      display: inline-block;
+      background: rgba(99, 102, 241, 0.2);
+      color: #818cf8;
+      border: 1px solid rgba(129, 140, 248, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.8rem;
+    }
+
     .controls {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       margin-top: auto;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 8px;
     }
 
     .recording-indicator {
@@ -67,7 +115,7 @@ export class MoonshineMicRecorder extends LitElement {
     .status-text {
       font-size: 0.85rem;
       color: var(--md-sys-color-on-surface-variant, #c5c6d0);
-      margin-top: 12px;
+      margin-top: 8px;
     }
   `;
 
@@ -76,11 +124,49 @@ export class MoonshineMicRecorder extends LitElement {
   @state() private isRecording = false;
   @state() private isProcessing = false;
   @state() private statusText = "Ready to record.";
+  @state() private autoPaste = true;
+  @state() private levels: number[] = new Array(16).fill(0.05);
 
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private pcmSamples: number[] = [];
-  private updateInterval: any = null;
+  private unlistens: UnlistenFn[] = [];
+
+  async connectedCallback() {
+    super.connectedCallback();
+
+    const u1 = await listen<number[]>("mic-level", (e) => {
+      if (Array.isArray(e.payload) && e.payload.length === 16) {
+        this.levels = e.payload;
+      }
+    });
+
+    const u2 = await listen<string>("global-shortcut-pressed", async () => {
+      if (this.modelLoaded && !this.isRecording && !this.isProcessing) {
+        this.statusText = "Push-to-Talk active (Alt+Space held)...";
+        await this.startRecording();
+      }
+    });
+
+    const u3 = await listen<string>("global-shortcut-released", async () => {
+      if (this.isRecording) {
+        this.statusText = "Push-to-Talk released. Finalizing...";
+        await this.stopRecording();
+      }
+    });
+
+    const u4 = await listen<string>("model-unloaded", (e) => {
+      this.statusText = `Model unloaded: ${e.payload}`;
+      this.modelLoaded = false;
+    });
+
+    this.unlistens.push(u1, u2, u3, u4);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.unlistens.forEach((u) => u());
+  }
 
   async startRecording() {
     if (!this.modelLoaded) {
@@ -156,11 +242,6 @@ export class MoonshineMicRecorder extends LitElement {
   async stopRecording() {
     if (!this.isRecording) return;
 
-    if (this.updateInterval) {
-      clearInterval(this.updateInterval);
-      this.updateInterval = null;
-    }
-
     this.isRecording = false;
     this.isProcessing = true;
     this.statusText = "Finalizing stream...";
@@ -181,7 +262,9 @@ export class MoonshineMicRecorder extends LitElement {
     try {
       const transcript = await invoke("stop_stream");
 
-      this.statusText = `Stream finalized (${durationSec}s recorded).`;
+      this.statusText = `Stream finalized (${durationSec}s recorded).${
+        this.autoPaste ? " Auto-pasted to active app!" : ""
+      }`;
 
       this.dispatchEvent(
         new CustomEvent("transcript-result", {
@@ -194,36 +277,83 @@ export class MoonshineMicRecorder extends LitElement {
       this.statusText = `Stream finalize error: ${e}`;
     } finally {
       this.isProcessing = false;
+      this.levels = new Array(16).fill(0.05);
     }
+  }
+
+  private async toggleAutoPaste(e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+    this.autoPaste = checked;
+    await invoke("toggle_auto_paste", { enable: checked });
+  }
+
+  private async toggleOverlay() {
+    await invoke("toggle_overlay");
   }
 
   render() {
     return html`
       <h2>Microphone Dictation</h2>
 
+      <div class="options-row">
+        <span>Global Hotkey:</span>
+        <span class="hotkey-badge">Option+Space</span>
+        <span>(Hold for Push-to-Talk)</span>
+      </div>
+
+      <div class="waveform">
+        ${this.levels.map(
+          (lvl) => html`<div class="bar" style="height: ${Math.max(6, lvl * 100)}%;"></div>`
+        )}
+      </div>
+
+      <div class="options-row">
+        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input
+            type="checkbox"
+            .checked=${this.autoPaste}
+            @change=${this.toggleAutoPaste}
+          />
+          Auto-paste transcript to active app
+        </label>
+      </div>
+
       <div class="status-text">${this.statusText}</div>
 
       <div class="controls">
-        ${!this.isRecording
+        <div class="button-group">
+          ${!this.isRecording
+            ? html`
+                <md-filled-button
+                  style="flex: 1;"
+                  ?disabled=${!this.modelLoaded || this.isProcessing}
+                  @click=${this.startRecording}
+                >
+                  🎙️ Start Recording
+                </md-filled-button>
+              `
+            : html`
+                <md-outlined-button
+                  style="flex: 1;"
+                  @click=${this.stopRecording}
+                >
+                  ⏹️ Stop Recording
+                </md-outlined-button>
+              `}
+
+          <md-outlined-button @click=${this.toggleOverlay}>
+            🪟 Toggle Overlay
+          </md-outlined-button>
+        </div>
+
+        ${this.isRecording
           ? html`
-              <md-filled-button
-                ?disabled=${!this.modelLoaded || this.isProcessing}
-                @click=${this.startRecording}
-              >
-                🎙️ Start Recording
-              </md-filled-button>
-            `
-          : html`
-              <md-outlined-button
-                @click=${this.stopRecording}
-              >
-                ⏹️ Stop Recording
-              </md-outlined-button>
               <div class="recording-indicator">
                 <div class="pulse"></div>
-                Recording...
+                Recording active...
               </div>
-            `}
+            `
+          : ""}
       </div>
     `;
   }

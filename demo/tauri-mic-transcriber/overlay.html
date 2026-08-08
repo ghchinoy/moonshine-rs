@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Moonshine Dictation Overlay</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: rgba(18, 18, 24, 0.92);
+        color: #f0f0f8;
+        font-family: system-ui, -apple-system, sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <moonshine-overlay-app></moonshine-overlay-app>
+    <script type="module" src="/src/overlay-main.ts"></script>
+  </body>
+</html>

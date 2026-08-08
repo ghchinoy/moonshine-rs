@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { invoke } from "@tauri-apps/api/core";
 
 import "@material/web/button/outlined-button.js";
 
@@ -26,6 +27,7 @@ export class MoonshineTranscriptView extends LitElement {
       border: 1px solid var(--md-sys-color-outline-variant, #44464f);
       border-radius: 12px;
       padding: 20px;
+      box-sizing: border-box;
     }
 
     .header {
@@ -40,6 +42,11 @@ export class MoonshineTranscriptView extends LitElement {
       font-weight: 600;
       color: var(--md-sys-color-primary, #b0c6ff);
       margin: 0;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
     }
 
     .transcript-box {
@@ -78,16 +85,29 @@ export class MoonshineTranscriptView extends LitElement {
 
   @property({ type: Object }) transcript: Transcript | null = null;
   @state() private copied = false;
+  @state() private pasted = false;
 
-  private copyTranscript() {
+  private async copyTranscript() {
     if (!this.transcript || !this.transcript.lines) return;
 
     const fullText = this.transcript.lines.map((l) => l.text).join("\n");
-    navigator.clipboard.writeText(fullText);
+    await invoke("copy_to_clipboard", { text: fullText });
 
     this.copied = true;
     setTimeout(() => {
       this.copied = false;
+    }, 2000);
+  }
+
+  private async pasteTranscript() {
+    if (!this.transcript || !this.transcript.lines) return;
+
+    const fullText = this.transcript.lines.map((l) => l.text).join(" ");
+    await invoke("paste_text", { text: fullText });
+
+    this.pasted = true;
+    setTimeout(() => {
+      this.pasted = false;
     }, 2000);
   }
 
@@ -99,9 +119,14 @@ export class MoonshineTranscriptView extends LitElement {
         <h2>Transcript Output</h2>
         ${lines.length > 0
           ? html`
-              <md-outlined-button @click=${this.copyTranscript}>
-                ${this.copied ? "✓ Copied!" : "📋 Copy"}
-              </md-outlined-button>
+              <div class="actions">
+                <md-outlined-button @click=${this.copyTranscript}>
+                  ${this.copied ? "✓ Copied!" : "📋 Copy"}
+                </md-outlined-button>
+                <md-outlined-button @click=${this.pasteTranscript}>
+                  ${this.pasted ? "✓ Pasted!" : "⌨️ Paste to App"}
+                </md-outlined-button>
+              </div>
             `
           : ""}
       </div>
