@@ -314,7 +314,7 @@ pub async fn stop_stream(app: AppHandle) -> Result<Transcript, String> {
 
         // Auto-paste if enabled and text is non-empty
         if state.auto_paste_enabled.load(Ordering::SeqCst) && !full_text.trim().is_empty() {
-            let _ = paste_text_to_active_app(&full_text);
+            let _ = paste_text_to_active_app(&app, &full_text);
         }
 
         Ok(transcript)
@@ -382,7 +382,7 @@ pub async fn transcribe_pcm_samples(
 
         let full_text = transcript.text();
         if state.auto_paste_enabled.load(Ordering::SeqCst) && !full_text.trim().is_empty() {
-            let _ = paste_text_to_active_app(&full_text);
+            let _ = paste_text_to_active_app(&app, &full_text);
         }
 
         Ok(transcript)
@@ -397,8 +397,8 @@ pub fn copy_to_clipboard(text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn paste_text(text: String) -> Result<(), String> {
-    paste_text_to_active_app(&text)
+pub fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
+    paste_text_to_active_app(&app, &text)
 }
 
 #[tauri::command]
@@ -418,26 +418,38 @@ pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
         .map_err(|e| format!("Clipboard set error: {}", e))
 }
 
-pub fn paste_text_to_active_app(text: &str) -> Result<(), String> {
+pub fn paste_text_to_active_app(app: &AppHandle, text: &str) -> Result<(), String> {
     copy_text_to_clipboard(text)?;
-    std::thread::sleep(Duration::from_millis(150));
 
-    let mut enigo =
-        Enigo::new(&Settings::default()).map_err(|e| format!("Enigo error: {:?}", e))?;
+    let app_handle = app.clone();
+    app.run_on_main_thread(move || {
+        std::thread::sleep(Duration::from_millis(150));
 
-    #[cfg(target_os = "macos")]
-    {
-        let _ = enigo.key(Key::Meta, Direction::Press);
-        let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-        let _ = enigo.key(Key::Meta, Direction::Release);
-    }
+        let res = (|| -> Result<(), String> {
+            let mut enigo =
+                Enigo::new(&Settings::default()).map_err(|e| format!("Enigo error: {:?}", e))?;
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = enigo.key(Key::Control, Direction::Press);
-        let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-        let _ = enigo.key(Key::Control, Direction::Release);
-    }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = enigo.key(Key::Meta, Direction::Press);
+                let _ = enigo.key(Key::Unicode('v'), Direction::Click);
+                let _ = enigo.key(Key::Meta, Direction::Release);
+            }
 
-    Ok(())
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = enigo.key(Key::Control, Direction::Press);
+                let _ = enigo.key(Key::Unicode('v'), Direction::Click);
+                let _ = enigo.key(Key::Control, Direction::Release);
+            }
+
+            Ok(())
+        })();
+
+        if let Err(err_msg) = res {
+            eprintln!("[Auto-Paste Error] {}", err_msg);
+            let _ = app_handle.emit("paste-error", err_msg);
+        }
+    })
+    .map_err(|e| format!("Failed to dispatch paste to main thread: {}", e))
 }

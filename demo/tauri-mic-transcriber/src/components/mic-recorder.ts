@@ -160,7 +160,11 @@ export class MoonshineMicRecorder extends LitElement {
       this.modelLoaded = false;
     });
 
-    this.unlistens.push(u1, u2, u3, u4);
+    const u5 = await listen<string>("paste-error", (e) => {
+      this.statusText = `Auto-paste error: ${e.payload}`;
+    });
+
+    this.unlistens.push(u1, u2, u3, u4, u5);
   }
 
   disconnectedCallback() {
