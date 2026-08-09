@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { customElement, state, query } from "lit/decorators.js";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -72,10 +72,14 @@ export class OverlayApp extends LitElement {
       font-size: 0.85rem;
       line-height: 1.25;
       color: #e0e0f0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
       font-weight: 500;
+      max-height: 3.75rem;
+      overflow-y: auto;
+      overflow-wrap: break-word;
+      scrollbar-width: none;
+    }
+    .transcript::-webkit-scrollbar {
+      display: none;
     }
 
     .placeholder {
@@ -96,6 +100,9 @@ export class OverlayApp extends LitElement {
   @state() private levels: number[] = new Array(16).fill(0.05);
   @state() private liveText = "";
   @state() private isRecording = false;
+
+  @query(".transcript")
+  private transcriptEl?: HTMLElement;
 
   private unlistens: UnlistenFn[] = [];
 
@@ -130,6 +137,12 @@ export class OverlayApp extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this.unlistens.forEach((u) => u());
+  }
+
+  updated(changed: Map<string, unknown>) {
+    if (changed.has("liveText") && this.transcriptEl) {
+      this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+    }
   }
 
   private async closeOverlay() {
