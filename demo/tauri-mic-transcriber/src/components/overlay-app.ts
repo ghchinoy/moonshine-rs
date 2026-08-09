@@ -22,6 +22,12 @@ export class OverlayApp extends LitElement {
       justify-content: space-between;
       font-size: 0.75rem;
       color: #a0a0b8;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .header:active {
+      cursor: grabbing;
     }
 
     .title {
@@ -132,10 +138,10 @@ export class OverlayApp extends LitElement {
 
   render() {
     return html`
-      <div class="header">
-        <div class="title">
+      <div class="header" data-tauri-drag-region>
+        <div class="title" data-tauri-drag-region>
           <div class="status-dot"></div>
-          <span>MOONSHINE DICTATION</span>
+          <span data-tauri-drag-region>MOONSHINE DICTATION</span>
         </div>
         <div class="close-btn" @click=${this.closeOverlay}>✕</div>
       </div>
