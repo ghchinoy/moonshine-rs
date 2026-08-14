@@ -280,6 +280,74 @@ let transcript = tokio::task::spawn_blocking(move || {
 }).await??;
 ```
 
+#### Real-Time Streaming Sessions (`TranscriberStream` & `OwnedTranscriberStream`)
+
+For incremental, low-latency microphone dictation and live audio processing, `moonshine-rs` provides streaming session handles:
+
+- **`Transcriber::create_stream()`**: Spawns a lightweight `TranscriberStream<'a>` that borrows the `Transcriber`.
+- **`Transcriber::create_owned_stream(self: Arc<Self>)`**: Spawns an `OwnedTranscriberStream` that holds an `Arc<Transcriber>`, making it `'static` and easy to move across threads, async boundaries, or Tauri application state.
+
+```rust
+use std::sync::Arc;
+use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
+
+let transcriber = Arc::new(Transcriber::from_files(
+    "./models/tiny-streaming",
+    ModelArch::TinyStreaming,
+    None,
+)?);
+
+let mut stream = transcriber.create_owned_stream()?;
+
+// 1. Ingest audio in small chunks (e.g. 100ms / 1600 samples at 16kHz)
+stream.add_audio(&pcm_chunk, 16000)?;
+
+// 2. Poll for interim updates (force=false skips redundant work if under ~200ms)
+let interim = stream.poll(false)?;
+
+// 3. Finalize recording and retrieve complete transcript
+let final_transcript = stream.finalize()?;
+```
+
+#### Domain Customization & Keyterm Biasing
+
+Moonshine streaming models (`TinyStreaming`, `SmallStreaming`, `MediumStreaming`) support **Runtime Domain Customization** — biasing speech recognition towards uncommon words, specialized technical jargon, and contact/product names without any model retraining.
+
+For upstream design notes and error-reduction benchmarks, see the official [Moonshine Domain Customization Guide](https://github.com/moonshine-ai/moonshine/blob/main/docs/models/domain-customization.md) and [moonshine.readthedocs.io](https://moonshine.readthedocs.io).
+
+##### 1. How It Works
+- **Key Terms List (`keyterms`)**: Each word or phrase (e.g. `"Kubernetes,Ceph,etcd"`) is tokenized into a subword prefix tree. During decoding, tokens advancing these paths receive a logarithmic logit boost `boost * (1 + ln(depth))`, ensuring specialized words are produced with exact spelling and casing.
+- **Context Passage (`context`)**: You can provide a passage of text (e.g. on-screen document, email thread, or meeting agenda). The model's built-in tokenizer scans the text and automatically extracts the top uncommon/multi-subword terms (capped by `context_max_terms`, default `200`).
+- **Biasing Strength (`keyterm_boost`)**: Defaults to `2.0`, which eliminates ~25% of domain errors with negligible disruption to general words. Use `1.0` for minimal disturbance, or `3.0` for heavier biasing. Avoid values above `4.0`.
+
+##### 2. Configuring at Initialization
+```rust
+use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
+
+let options = TranscriberOptions::new()
+    .with_keyterms("Kubernetes,Ceph,etcd,Anushka Sharma")
+    .with_keyterm_boost(2.5)
+    .with_context("Platform migration notes for cluster storage.")
+    .with_context_max_terms(100);
+
+let transcriber = Transcriber::from_files(
+    "./models/tiny-streaming",
+    ModelArch::TinyStreaming,
+    Some(&options),
+)?;
+```
+
+##### 3. Dynamic Mid-Stream Updating (Zero Model Reload)
+Because `set_keyterms` and `set_context` are thread-safe and take effect on the next decode cycle, live applications can follow user context (e.g. active window focus or clipboard changes) mid-stream:
+
+```rust
+// Switch keyterms dynamically on the fly
+stream.set_keyterms("Rust,Tokio,Tauri")?;
+
+// Or feed an updated on-screen context document
+stream.set_context(current_document_text, 150)?;
+```
+
 #### `Transcript` Data Model
 Represents the transcription output:
 
@@ -290,10 +358,15 @@ pub struct Transcript {
 
 pub struct TranscriptLine {
     pub text: String,
-    pub start_time: f32,      // Seconds from start of audio
-    pub duration: f32,        // Segment duration in seconds
-    pub id: u64,              // Stable line identifier
-    pub is_complete: bool,
+    pub start_time: f32,                    // Seconds from start of audio
+    pub duration: f32,                      // Segment duration in seconds
+    pub id: u64,                            // Stable line identifier
+    pub is_complete: bool,                  // Whether line is finalized
+    pub is_updated: bool,                   // Streaming: updated since last poll
+    pub is_new: bool,                       // Streaming: newly added line
+    pub has_text_changed: bool,             // Streaming: text revised
+    pub have_speakers_changed: bool,        // Streaming: speaker spans revised
+    pub last_transcription_latency_ms: u32, // Processing latency in ms
     pub words: Vec<TranscriptWord>,
     pub speaker_spans: Vec<SpeakerSpan>,
 }

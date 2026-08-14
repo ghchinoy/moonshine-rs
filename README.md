@@ -53,6 +53,8 @@ catalog browsing.
 ## Features
 
 - **On-Device STT**: Transcribe audio locally using quantized Moonshine models (`tiny-en`, `base-en`, etc.).
+- **Low-Latency Streaming**: Real-time microphone audio chunk processing via `TranscriberStream` and `OwnedTranscriberStream`.
+- **Domain Customization**: Dynamically bias recognition towards specialized vocabularies, technical jargon, and contact/product names without model retraining (see [Moonshine Domain Customization](https://github.com/moonshine-ai/moonshine/blob/main/docs/models/domain-customization.md)).
 - **Static Linking**: Compiles `libmoonshine` from source via CMake and statically embeds ONNX Runtime. Zero external `.dylib` / `.so` runtime dependencies.
 - **Fast Performance**: Transcribes 44 seconds of audio in under 1 second using the `tiny-en` model on Apple Silicon.
 - **Safe API**: Ergonomic Rust wrapper over low-level FFI with safe memory management, typed error handling, and thread-safe transcriber handles.
@@ -198,6 +200,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let final_transcript = stream.finalize()?;
     Ok(())
 }
+```
+
+### Domain Customization & Keyterm Biasing Example
+
+Dynamically bias streaming models towards specialized jargon, proper nouns, or on-screen document context without retraining (see the [upstream guide](https://github.com/moonshine-ai/moonshine/blob/main/docs/models/domain-customization.md)):
+
+```rust
+use moonshine_rs::{ModelArch, Transcriber, TranscriberOptions};
+
+// Configure key terms and boost at load time:
+let options = TranscriberOptions::new()
+    .with_keyterms("Kubernetes,Ceph,etcd")
+    .with_keyterm_boost(2.5);
+
+let transcriber = Transcriber::from_files(
+    "./models/tiny-streaming",
+    ModelArch::TinyStreaming,
+    Some(&options),
+)?;
+
+let mut stream = transcriber.create_stream()?;
+
+// Or dynamically update vocab terms mid-stream without reloading models:
+stream.set_keyterms("Rust,Tokio,Tauri")?;
 ```
 
 <details>
