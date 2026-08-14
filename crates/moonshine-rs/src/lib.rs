@@ -189,6 +189,39 @@ impl TranscriberOptions {
     pub fn with_spelling_model(self, path: &str) -> Self {
         self.set("spelling_model_path", path)
     }
+
+    /// Sets a list of key terms (comma-separated, e.g. `"Kubernetes,Ceph,etcd"`)
+    /// to bias the decoder towards uncommon words, domain jargon, or contact names.
+    ///
+    /// Capitalization and spelling in `keyterms` are reflected in the transcript output.
+    /// Only streaming model architectures (`TinyStreaming`, `SmallStreaming`, `MediumStreaming`)
+    /// apply keyterm biasing.
+    pub fn with_keyterms(self, keyterms: impl AsRef<str>) -> Self {
+        self.set("keyterms", keyterms.as_ref())
+    }
+
+    /// Sets the keyterm biasing strength (default `2.0` upstream).
+    ///
+    /// A boost of `2.0` is a balanced default (recovering ~25% of domain errors with negligible impact
+    /// on general words). Use `1.0` for minimal disruption, or `3.0` for stronger keyword biasing.
+    /// Avoid setting above `4.0`.
+    pub fn with_keyterm_boost(self, boost: f32) -> Self {
+        self.set("keyterm_boost", boost.to_string())
+    }
+
+    /// Supplies a passage of free-form context text from which the model's tokenizer
+    /// extracts unusual domain-specific terms to bias towards.
+    ///
+    /// For example, pass on-screen document content, an email thread, or a meeting agenda.
+    /// Only streaming model architectures support context domain customization.
+    pub fn with_context(self, context: impl AsRef<str>) -> Self {
+        self.set("context", context.as_ref())
+    }
+
+    /// Caps the maximum number of key terms extracted from context text (default `200` upstream).
+    pub fn with_context_max_terms(self, max_terms: u32) -> Self {
+        self.set("context_max_terms", max_terms.to_string())
+    }
 }
 
 /// A single recognized word with timing and confidence.
@@ -561,6 +594,73 @@ impl Transcriber {
             closed: false,
         })
     }
+
+    /// Replaces the contextual-biasing key terms on this transcriber.
+    ///
+    /// Key terms bias the decoder towards rare words, jargon, contact names, or product
+    /// names. `keyterms` is a comma-separated list of terms (e.g. `"Kubernetes,Ceph,etcd"`).
+    /// Pass an empty string `""` to turn biasing off.
+    ///
+    /// Safe to call between transcription calls on a live stream and takes effect
+    /// on the next transcription cycle without reloading the model.
+    ///
+    /// Note: Only streaming model architectures (`TinyStreaming`, `SmallStreaming`,
+    /// `MediumStreaming`) support domain customization.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if the handle is invalid or if the loaded model is not
+    /// a streaming architecture.
+    pub fn set_keyterms(&self, keyterms: impl AsRef<str>) -> Result<()> {
+        let _guard = self._lock.lock().unwrap();
+        let keyterms_str = keyterms.as_ref();
+        let c_keyterms = CString::new(keyterms_str)?;
+        let ret =
+            unsafe { sys::moonshine_transcriber_set_keyterms(self.handle, c_keyterms.as_ptr()) };
+        if ret != 0 {
+            return Err(Error::ApiError {
+                code: ret,
+                message: error_string(ret),
+            });
+        }
+        Ok(())
+    }
+
+    /// Extracts unusual key terms from a passage of free-form text and biases towards them.
+    ///
+    /// Context text (such as an on-screen document, email thread, or meeting agenda) is parsed
+    /// using the loaded model's tokenizer to automatically identify domain-specific words.
+    ///
+    /// `max_terms` caps the number of extracted terms. Pass `0` for the upstream default (`200`).
+    /// Pass an empty string `""` to disable biasing.
+    ///
+    /// Safe to call between transcription calls on a live stream and takes effect
+    /// on the next transcription cycle without reloading the model.
+    ///
+    /// Note: Only streaming model architectures (`TinyStreaming`, `SmallStreaming`,
+    /// `MediumStreaming`) support domain customization.
+    ///
+    /// # Errors
+    /// Returns [`Error::ApiError`] if the handle is invalid or if the loaded model is not
+    /// a streaming architecture.
+    pub fn set_context(&self, context: impl AsRef<str>, max_terms: u32) -> Result<()> {
+        let _guard = self._lock.lock().unwrap();
+        let context_str = context.as_ref();
+        let c_context = CString::new(context_str)?;
+        let ret = unsafe {
+            sys::moonshine_transcriber_set_context(
+                self.handle,
+                c_context.as_ptr(),
+                max_terms as i32,
+            )
+        };
+        if ret != 0 {
+            return Err(Error::ApiError {
+                code: ret,
+                message: error_string(ret),
+            });
+        }
+        Ok(())
+    }
 }
 
 /// An active streaming session for incremental, real-time transcription.
@@ -697,6 +797,20 @@ impl<'a> TranscriberStream<'a> {
         }
 
         Ok(())
+    }
+
+    /// Replaces the contextual-biasing key terms on the underlying transcriber mid-stream.
+    ///
+    /// See [`Transcriber::set_keyterms`].
+    pub fn set_keyterms(&self, keyterms: impl AsRef<str>) -> Result<()> {
+        self.transcriber.set_keyterms(keyterms)
+    }
+
+    /// Extracts key terms from context text and applies them to the underlying transcriber mid-stream.
+    ///
+    /// See [`Transcriber::set_context`].
+    pub fn set_context(&self, context: impl AsRef<str>, max_terms: u32) -> Result<()> {
+        self.transcriber.set_context(context, max_terms)
     }
 
     /// Finalizes the stream and returns the complete final [`Transcript`].
@@ -871,6 +985,20 @@ impl OwnedTranscriberStream {
         }
 
         Ok(())
+    }
+
+    /// Replaces the contextual-biasing key terms on the underlying transcriber mid-stream.
+    ///
+    /// See [`Transcriber::set_keyterms`].
+    pub fn set_keyterms(&self, keyterms: impl AsRef<str>) -> Result<()> {
+        self.transcriber.set_keyterms(keyterms)
+    }
+
+    /// Extracts key terms from context text and applies them to the underlying transcriber mid-stream.
+    ///
+    /// See [`Transcriber::set_context`].
+    pub fn set_context(&self, context: impl AsRef<str>, max_terms: u32) -> Result<()> {
+        self.transcriber.set_context(context, max_terms)
     }
 
     /// Finalizes the stream and returns the complete final [`Transcript`].
@@ -1391,13 +1519,55 @@ mod tests {
     }
 
     #[test]
+    fn test_transcriber_options_keyterm_and_context() {
+        let opts = TranscriberOptions::new()
+            .with_keyterms("Kubernetes,Ceph,etcd")
+            .with_keyterm_boost(3.5)
+            .with_context("Platform migration notes for cluster services.")
+            .with_context_max_terms(150);
+
+        assert_eq!(opts.get("keyterms"), Some("Kubernetes,Ceph,etcd"));
+        assert_eq!(opts.get("keyterm_boost"), Some("3.5"));
+        assert_eq!(
+            opts.get("context"),
+            Some("Platform migration notes for cluster services.")
+        );
+        assert_eq!(opts.get("context_max_terms"), Some("150"));
+    }
+
+    fn find_streaming_model_dir() -> Option<PathBuf> {
+        let candidates = [
+            env::var("MOONSHINE_TEST_STREAMING_DIR")
+                .ok()
+                .map(PathBuf::from),
+            Some(PathBuf::from("../../models/tiny-streaming")),
+            Some(PathBuf::from("models/tiny-streaming")),
+            Some(PathBuf::from("/tmp/models/tiny-streaming")),
+        ];
+        candidates
+            .into_iter()
+            .flatten()
+            .find(|c| c.join("streaming_config.json").exists())
+    }
+
+    fn find_non_streaming_model_dir() -> Option<PathBuf> {
+        let candidates = [
+            env::var("MOONSHINE_TEST_MODEL_DIR").ok().map(PathBuf::from),
+            Some(PathBuf::from("../../models/tiny-en")),
+            Some(PathBuf::from("models/tiny-en")),
+            Some(PathBuf::from("/tmp/models/tiny-en")),
+        ];
+        candidates
+            .into_iter()
+            .flatten()
+            .find(|c| c.join("encoder_model.ort").exists())
+    }
+
+    #[test]
     fn test_from_memory_files() {
-        let model_dir = if let Ok(dir) = env::var("MOONSHINE_TEST_MODEL_DIR") {
-            PathBuf::from(dir)
-        } else if PathBuf::from("/tmp/models/tiny-en").exists() {
-            PathBuf::from("/tmp/models/tiny-en")
-        } else {
-            return;
+        let model_dir = match find_non_streaming_model_dir() {
+            Some(d) => d,
+            None => return,
         };
 
         let enc_bytes = fs::read(model_dir.join("encoder_model.ort")).unwrap();
@@ -1416,12 +1586,9 @@ mod tests {
 
     #[test]
     fn test_streaming_lifecycle() {
-        let model_dir = if let Ok(dir) = env::var("MOONSHINE_TEST_STREAMING_DIR") {
-            PathBuf::from(dir)
-        } else if PathBuf::from("/tmp/models/tiny-streaming").exists() {
-            PathBuf::from("/tmp/models/tiny-streaming")
-        } else {
-            return;
+        let model_dir = match find_streaming_model_dir() {
+            Some(d) => d,
+            None => return,
         };
 
         let transcriber =
@@ -1442,12 +1609,9 @@ mod tests {
 
     #[test]
     fn test_owned_streaming_lifecycle() {
-        let model_dir = if let Ok(dir) = env::var("MOONSHINE_TEST_STREAMING_DIR") {
-            PathBuf::from(dir)
-        } else if PathBuf::from("/tmp/models/tiny-streaming").exists() {
-            PathBuf::from("/tmp/models/tiny-streaming")
-        } else {
-            return;
+        let model_dir = match find_streaming_model_dir() {
+            Some(d) => d,
+            None => return,
         };
 
         let transcriber =
@@ -1459,5 +1623,67 @@ mod tests {
         let _ = stream.poll(true).unwrap();
 
         let _ = stream.finalize().unwrap();
+    }
+
+    #[test]
+    fn test_streaming_keyterms_and_context() {
+        let model_dir = match find_streaming_model_dir() {
+            Some(d) => d,
+            None => return,
+        };
+
+        let opts = TranscriberOptions::new()
+            .with_keyterms("Kubernetes,Ceph")
+            .with_keyterm_boost(2.5)
+            .with_context("Kubernetes deployment for Ceph storage")
+            .with_context_max_terms(50);
+
+        let transcriber =
+            Transcriber::from_files(&model_dir, ModelArch::TinyStreaming, Some(&opts)).unwrap();
+
+        // Test runtime updates directly on transcriber
+        transcriber
+            .set_keyterms("Anushka Sharma,Jurgen Klopp")
+            .unwrap();
+        transcriber
+            .set_context("Meeting with Anushka Sharma and Jurgen Klopp", 100)
+            .unwrap();
+        transcriber.set_keyterms("").unwrap(); // disable
+
+        // Test mid-stream updates via TranscriberStream
+        let mut stream = transcriber.create_stream().unwrap();
+        stream.set_keyterms("PostgreSQL,ClickHouse").unwrap();
+        stream.set_context("Database migration plan", 20).unwrap();
+
+        let chunk = vec![0.0f32; 1600];
+        stream.add_audio(&chunk, 16_000).unwrap();
+        let _ = stream.poll(false).unwrap();
+        let _ = stream.finalize().unwrap();
+
+        // Test mid-stream updates via OwnedTranscriberStream
+        let arc_transcriber = Arc::new(transcriber);
+        let mut owned_stream = arc_transcriber.create_owned_stream().unwrap();
+        owned_stream.set_keyterms("Rust,Tokio,Tauri").unwrap();
+        owned_stream
+            .set_context("GUI voice application in Rust", 10)
+            .unwrap();
+        owned_stream.add_audio(&chunk, 16_000).unwrap();
+        let _ = owned_stream.poll(true).unwrap();
+        let _ = owned_stream.finalize().unwrap();
+    }
+
+    #[test]
+    fn test_non_streaming_keyterms_error() {
+        let model_dir = match find_non_streaming_model_dir() {
+            Some(d) => d,
+            None => return,
+        };
+
+        let transcriber = Transcriber::from_files(&model_dir, ModelArch::Tiny, None).unwrap();
+        let res = transcriber.set_keyterms("Kubernetes");
+        assert!(
+            res.is_err(),
+            "set_keyterms should fail on non-streaming models"
+        );
     }
 }

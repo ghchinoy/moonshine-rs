@@ -107,6 +107,8 @@ extern "C" {
 #define MOONSHINE_MODEL_ARCH_TINY (0)
 #define MOONSHINE_MODEL_ARCH_BASE (1)
 #define MOONSHINE_MODEL_ARCH_TINY_STREAMING (2)
+/* Note: BASE_STREAMING is defined for future use but is not currently
+   published in the model catalog.                                           */
 #define MOONSHINE_MODEL_ARCH_BASE_STREAMING (3)
 #define MOONSHINE_MODEL_ARCH_SMALL_STREAMING (4)
 #define MOONSHINE_MODEL_ARCH_MEDIUM_STREAMING (5)
@@ -314,6 +316,50 @@ MOONSHINE_EXPORT const char *moonshine_error_to_string(int32_t error);
    the same runtime. Safe to call on NULL. */
 MOONSHINE_EXPORT void moonshine_free_buffer(void *ptr);
 
+/* Replaces the contextual-biasing key terms on an existing transcriber, so a
+   caller can follow whatever context the user is in - the contact list on
+   screen, the vocabulary of the document being dictated into - without
+   reloading the model. ``keyterms`` is a comma-separated list using the same
+   syntax as the ``keyterms`` load option; pass NULL or an empty string to turn
+   biasing off.
+
+   Safe to call between transcribe calls on a live stream. Takes effect on the
+   next transcribe call: it does not retroactively change text already emitted.
+
+   Returns ``MOONSHINE_ERROR_NONE`` on success, or a non-zero error code if the
+   handle is invalid or the loaded model is not a streaming architecture (only
+   those decode through a path that can apply the bias). */
+MOONSHINE_EXPORT int32_t moonshine_transcriber_set_keyterms(
+    int32_t transcriber_handle, const char *keyterms);
+
+/* Picks the key terms out of a passage of free-form text and biases towards
+   them, replacing any previous list. Where
+   ``moonshine_transcriber_set_keyterms`` wants a list, this wants context: hand
+   over the document on screen, the agenda for the meeting, the last few
+   messages in the thread, and the unusual words in it are found for you.
+
+   A word is judged unusual by how the model's own tokenizer spells it. That
+   vocabulary is ordered by frequency, so an everyday word has a token to itself
+   while jargon and proper nouns have to be built out of several subwords, and
+   needing more than one is the signal used here. It follows the language of the
+   loaded model, and the capitalization in the passage is what gets asked for in
+   the transcript.
+
+   ``max_terms`` caps the list; pass 0 for the default of 200. The cap matters:
+   a long list costs accuracy on the words you did not ask for (see
+   docs/models/domain-customization.md), so the terms the passage leans on
+   hardest are kept and the rest of its long tail is dropped. Pass NULL or an
+   empty string to turn biasing off.
+
+   Safe to call between transcribe calls on a live stream. Takes effect on the
+   next transcribe call: it does not retroactively change text already emitted.
+
+   Returns ``MOONSHINE_ERROR_NONE`` on success, or a non-zero error code if the
+   handle is invalid or the loaded model is not a streaming architecture (only
+   those decode through a path that can apply the bias). */
+MOONSHINE_EXPORT int32_t moonshine_transcriber_set_context(
+    int32_t transcriber_handle, const char *context, int32_t max_terms);
+
 /* Converts a transcript_t struct into a human-readable string for debugging
  * purposes. The string is owned by the library, and is valid until the next
  * call to moonshine_transcript_to_string. */
@@ -331,7 +377,7 @@ MOONSHINE_EXPORT const char *moonshine_transcript_to_string(
    example `python scripts/download-moonshine-model.py --model-type base
    --model-language en`.
    The source weights are available on the Hugging Face Model Hub at
-   https://huggingface.co/UsefulSensors/, and the download and conversion to
+   https://huggingface.co/moonshine-ai/, and the download and conversion to
    ONNX script is available in this repository at
    `scripts/convert-moonshine-model.sh`.
    The tokenizer.bin contains the token to character mapping for the model,
@@ -351,6 +397,22 @@ MOONSHINE_EXPORT const char *moonshine_transcript_to_string(
    Pass ``use_speculative_decoding`` (bool, default true) to control
    speculative re-decode of the previous hypothesis on streaming updates
    (set false to fall back to greedy redecode from BOS).
+   Pass ``keyterms`` (comma-separated terms, e.g.
+   ``Kubernetes,Anushka Sharma,ANSI/ISO``) to bias the decoder towards words it
+   would otherwise be unlikely to produce - jargon, product names, contact
+   names. No retraining is involved: each term is compiled into a subword trie
+   and used to nudge the decoder's logits, so the terms can be different on
+   every transcriber and can be replaced mid-stream with
+   ``moonshine_transcriber_set_keyterms``. Match the capitalization and
+   spelling you want to see in the output. Only the streaming architectures
+   apply this. Pass ``context`` instead (or as well) to hand over a passage of
+   free-form text and have the terms picked out of it, as
+   ``moonshine_transcriber_set_context`` does, with ``context_max_terms``
+   (int, default 200) capping how many are taken.
+   ``keyterm_boost`` (float, default 2.0) sets the strength. The
+   default is where the terms come out most accurately; going higher recovers no
+   more of them and starts putting them where they were not said, so lower it if
+   general accuracy matters more than the list does, rather than raising it.
    Pass ``identify_speakers`` (bool, default false) to enable speaker
    diarization: each line then carries a ``speaker_spans`` array describing
    who spoke when, including UTF-8 character ranges into the line text.
@@ -445,8 +507,13 @@ MOONSHINE_EXPORT int32_t moonshine_load_transcriber_from_memory(
        models ``segmentation.ort`` and ``embedding.ort``, which are required
        when the ``identify_speakers`` option is set. Fetch those two with
        moonshine_get_diarization_dependencies.
-   Unrecognized keys are ignored, and missing required keys cause the load to
-   fail.
+   Unrecognized keys are rejected with MOONSHINE_ERROR_INVALID_ARGUMENT, and
+   missing required keys cause the load to fail. The recognized set is the
+   union of the names above across every architecture, so passing an asset
+   this architecture or option set has no use for is fine - handing over a
+   whole downloaded model directory works - but a misspelled name is reported
+   against the key you passed instead of surfacing later as a missing-asset
+   failure.
 
    When ``memory[i]`` is non-NULL and ``memory_sizes[i]`` > 0, that buffer is
    used as the asset bytes. The library does not copy the model buffers (the
@@ -884,9 +951,7 @@ MOONSHINE_EXPORT int32_t moonshine_create_tts_synthesizer_from_memory(
     const uint64_t *memory_sizes, const struct moonshine_option_t *options,
     uint64_t options_count, int32_t moonshine_version);
 
-/* Releases the resources used by a text to speech synthesizer.
-   Returns zero on success, or a non-zero error code on failure.
-*/
+/* Releases the resources used by a text to speech synthesizer. */
 MOONSHINE_EXPORT void moonshine_free_tts_synthesizer(
     int32_t tts_synthesizer_handle);
 
@@ -983,7 +1048,8 @@ MOONSHINE_EXPORT int32_t moonshine_get_tts_voices(
    do are honored:
      - ``model_arch``: one of the MOONSHINE_MODEL_ARCH_* constants as a decimal
        string. When omitted, the default (first) model for the language is
-       used.
+       used. Note: MOONSHINE_MODEL_ARCH_BASE_STREAMING is defined but not
+       currently published in the model catalog.
      - ``word_timestamps`` (bool): when true, the optional attention decoder
        (``decoder_kv_with_attention.ort`` for streaming, or
        ``decoder_with_attention.ort`` for non-streaming) is included for
@@ -1172,9 +1238,7 @@ MOONSHINE_EXPORT int32_t moonshine_create_grapheme_to_phonemizer_from_memory(
     const uint64_t *memory_sizes, const struct moonshine_option_t *options,
     uint64_t options_count, int32_t moonshine_version);
 
-/* Releases the resources used by a grapheme to phonemizer.
-   Returns zero on success, or a non-zero error code on failure.
-*/
+/* Releases the resources used by a grapheme to phonemizer. */
 MOONSHINE_EXPORT void moonshine_free_grapheme_to_phonemizer(
     int32_t grapheme_to_phonemizer_handle);
 

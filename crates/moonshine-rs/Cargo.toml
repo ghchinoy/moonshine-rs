@@ -10,7 +10,7 @@ keywords = ["stt", "speech-to-text", "moonshine", "audio", "onnx"]
 categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
-moonshine-sys = { path = "../moonshine-sys", version = "0.2.1" }
+moonshine-sys = { path = "../moonshine-sys", version = "0.2.2" }
 thiserror = "1.0"
 ureq = "2.12"
 serde_json = "1.0"
@@ -50,6 +50,10 @@ path = "examples/browse_catalog.rs"
 [[example]]
 name = "stream_transcribe"
 path = "examples/stream_transcribe.rs"
+
+[[example]]
+name = "keyterm_biasing"
+path = "examples/keyterm_biasing.rs"
 
 [features]
 default = ["audio"]

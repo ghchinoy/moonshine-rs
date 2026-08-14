@@ -224,6 +224,7 @@ and run with `cargo run --example <name> -p moonshine-rs -- <args>`:
 | Download a model | `download_model` | `<OUTPUT_DIR> [LANGUAGE] [ARCH]` |
 | Transcribe a file | `transcribe_file` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Real-time streaming | `stream_transcribe` | `<MODEL_DIR> <AUDIO_FILE>` |
+| Keyterm & context biasing | `keyterm_biasing` | `<STREAMING_MODEL_DIR> <AUDIO_FILE> [KEYTERMS]` |
 | Get word-level timestamps | `word_timestamps` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Identify speakers (diarization) | `speaker_diarization` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Transcribe from an async runtime | `async_transcribe` | `<MODEL_DIR> <AUDIO_FILE>` |

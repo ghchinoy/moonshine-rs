@@ -5,6 +5,22 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-08-13
+
+### Added
+
+- **Domain Customization and Keyterm Biasing API**:
+  - Wrapped upstream `moonshine_transcriber_set_keyterms` and `moonshine_transcriber_set_context` C API functions.
+  - Added `TranscriberOptions::with_keyterms(terms)`, `TranscriberOptions::with_keyterm_boost(boost)`, `TranscriberOptions::with_context(context)`, and `TranscriberOptions::with_context_max_terms(max_terms)`.
+  - Added `set_keyterms` and `set_context` methods on `Transcriber`, `TranscriberStream`, and `OwnedTranscriberStream` for dynamic mid-stream keyword biasing.
+  - Added runnable example `examples/keyterm_biasing.rs`.
+
+### Changed
+
+- **Upstream C API & Prebuilt Release Pin**:
+  - Bumped prebuilt release binary download fallback tag in `moonshine-sys/build.rs` to upstream release `v0.1.2`.
+  - Refreshed vendored C API header (`vendor/moonshine-c-api.h`) from upstream.
+
 ## [0.2.1] - 2026-08-08
 
 ### Added
