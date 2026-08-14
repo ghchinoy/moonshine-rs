@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `TranscriberOptions::with_keyterms(terms)`, `TranscriberOptions::with_keyterm_boost(boost)`, `TranscriberOptions::with_context(context)`, and `TranscriberOptions::with_context_max_terms(max_terms)`.
   - Added `set_keyterms` and `set_context` methods on `Transcriber`, `TranscriberStream`, and `OwnedTranscriberStream` for dynamic mid-stream keyword biasing.
   - Added runnable example `examples/keyterm_biasing.rs`.
+- **Tauri Desktop Demo Enhancements**:
+  - Added floating always-on-top dictation overlay window with live 16-band FFT audio visualizer.
+  - Added global push-to-talk hotkey (`Option+Space` / `Alt+Space`) and automatic clipboard paste insertion via `enigo` & `arboard`.
+  - Added poisoned-mutex recovery and 5-minute idle model unloading.
+
+### Fixed
+
+- **Tauri Demo macOS Stability & Capabilities**:
+  - Dispatched `enigo` simulated keystrokes to macOS main thread to eliminate `SIGTRAP` keyboard-layout assertion crashes.
+  - Added `"overlay"` window to Tauri capabilities and granted `core:window:allow-start-dragging` for borderless window drag-repositioning.
+  - Fixed overlay transcript container auto-scrolling to show live incoming text updates.
 
 ### Changed
 
