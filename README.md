@@ -58,6 +58,7 @@ catalog browsing.
 - **Static Linking**: Compiles `libmoonshine` from source via CMake and statically embeds ONNX Runtime. Zero external `.dylib` / `.so` runtime dependencies.
 - **Fast Performance**: Transcribes 44 seconds of audio in under 1 second using the `tiny-en` model on Apple Silicon.
 - **Safe API**: Ergonomic Rust wrapper over low-level FFI with safe memory management, typed error handling, and thread-safe transcriber handles.
+- **Text-to-Speech (TTS)**: On-device voice synthesis via Kokoro, Piper, and ZipVoice engines with support for one-shot audio generation, streaming token synthesis, and sentence splitting.
 - **Dependency & Catalog Metadata**: Query official STT model catalogs and asset manifests natively in Rust.
 
 ## Moonshine Models
@@ -256,6 +257,7 @@ and run with `cargo run --example <name> -p moonshine-rs -- <args>`:
 | Identify speakers (diarization) | `speaker_diarization` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Transcribe from an async runtime | `async_transcribe` | `<MODEL_DIR> <AUDIO_FILE>` |
 | List available models/languages | `browse_catalog` | *(none)* |
+| Text-to-Speech synthesis | `text_to_speech` | `[MODEL_DIR] [VOICE] [TEXT]` |
 
 ## Demos
 

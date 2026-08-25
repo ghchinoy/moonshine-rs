@@ -5,6 +5,19 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-08-25
+
+### Added
+
+- **Text-to-Speech (TTS) & Streaming Synthesis Module (`moonshine_rs::tts`)**:
+  - Added `TtsSynthesizer` for on-device voice synthesis (Kokoro, Piper, ZipVoice).
+  - Added one-shot audio synthesis methods: `synthesize(text)` and `synthesize_phonemes(phonemes)`.
+  - Added pull-based, synchronous real-time streaming synthesis for LLM token streams: `push_text(tokens)`, `flush()`, `end_input()`, `cancel()`, `is_streaming()`, and `next_chunk()`.
+  - Added `split_utterances` sentence segmentation helper preserving honorifics, abbreviations, and language-specific terminators.
+  - Added voice discovery and dependency catalog queries: `get_tts_voices`, `get_tts_dependencies`, and `get_g2p_dependencies`.
+  - Added `GraphemeToPhonemizer` for converting text to IPA phonemes.
+  - Added runnable example `examples/text_to_speech.rs`.
+
 ## [0.2.3] - 2026-08-25
 
 ### Changed

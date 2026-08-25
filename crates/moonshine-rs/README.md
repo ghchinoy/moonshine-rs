@@ -14,6 +14,7 @@ Idiomatic Rust wrapper for [Moonshine Voice](https://github.com/moonshine-ai/moo
 - **Real-Time Streaming**: Low-latency incremental speech recognition with `TranscriberStream` & `OwnedTranscriberStream`.
 - **Domain Customization**: Dynamically bias recognition towards specialized vocabularies, technical jargon, and contact/product names without model retraining (see [Moonshine Domain Customization Guide](https://github.com/moonshine-ai/moonshine/blob/main/docs/models/domain-customization.md)).
 - **Multi-Format Audio**: Direct decoding and 16kHz resampling for MP3, WAV, AAC, FLAC, OGG, and M4A audio files via `moonshine_rs::audio`.
+- **Text-to-Speech (TTS)**: On-device voice synthesis (Kokoro, Piper, ZipVoice) with one-shot and streaming chunked synthesis.
 - **Zero Runtime `.dylib` Dependencies**: Statically links `libmoonshine` and ONNX Runtime.
 - **Safe API**: Typed errors, automatic resource management (`Drop`), and thread-safe transcriber handles.
 
@@ -105,6 +106,21 @@ let mut stream = transcriber.create_stream()?;
 
 // 2. Or switch terms mid-stream without reloading models:
 stream.set_keyterms("Rust,Tokio,Tauri")?;
+```
+
+### Text-to-Speech (TTS) Synthesis
+
+Synthesize text to audio on-device using Kokoro or Piper:
+
+```rust
+use moonshine_rs::{TtsOptions, TtsSynthesizer};
+
+let options = TtsOptions::new().with_voice("kokoro_af_heart");
+let synth = TtsSynthesizer::from_files("en", &["./models/tts/kokoro"], Some(&options))?;
+
+// One-shot synthesis
+let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;
+println!("Generated {} audio samples at {} Hz", audio.pcm.len(), audio.sample_rate);
 ```
 
 ## Moonshine Models & Assets

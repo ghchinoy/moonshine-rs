@@ -107,6 +107,8 @@ extern "C" {
 #define MOONSHINE_MODEL_ARCH_TINY (0)
 #define MOONSHINE_MODEL_ARCH_BASE (1)
 #define MOONSHINE_MODEL_ARCH_TINY_STREAMING (2)
+/* Note: BASE_STREAMING is defined for future use but is not currently
+   published in the model catalog.                                           */
 #define MOONSHINE_MODEL_ARCH_BASE_STREAMING (3)
 #define MOONSHINE_MODEL_ARCH_SMALL_STREAMING (4)
 #define MOONSHINE_MODEL_ARCH_MEDIUM_STREAMING (5)
@@ -116,6 +118,22 @@ extern "C" {
 #define MOONSHINE_ERROR_UNKNOWN (-1)
 #define MOONSHINE_ERROR_INVALID_HANDLE (-2)
 #define MOONSHINE_ERROR_INVALID_ARGUMENT (-3)
+/* A streaming generation is in flight and the call would have competed with it
+   for the model. Finish it, or call moonshine_tts_cancel.                   */
+#define MOONSHINE_ERROR_BUSY (-4)
+
+/* Statuses from moonshine_tts_next_chunk. All are positive, so the usual
+   "negative means failure" test still separates them from real errors, and
+   all convert with moonshine_error_to_string.                              */
+/* No complete sentence is buffered yet. Push more text, or flush.          */
+#define MOONSHINE_TTS_NEED_TEXT (1)
+/* Input ended and every queued utterance has been synthesized.             */
+#define MOONSHINE_TTS_END_OF_STREAM (2)
+/* moonshine_tts_cancel discarded the reply that was being generated. Sent
+   once, and only when there was something to discard, so a consumer pulling
+   chunks on a worker thread can tell an interruption from running out of
+   text.                                                                    */
+#define MOONSHINE_TTS_CANCELLED (3)
 
 /* Flags.                                                                */
 #define MOONSHINE_FLAG_FORCE_UPDATE (1 << 0)
@@ -254,17 +272,17 @@ struct transcript_line_t {
    * segment, non-zero means they have. */
   int8_t is_complete;
   /* Streaming-only: Whether the line has been updated since the previous call
-   * to transcribe_stream_chunk. */
+   * to moonshine_transcribe_stream. */
   int8_t is_updated;
   /* Streaming-only: Whether the line was newly added since the previous call to
-   * transcribe_stream_chunk. */
+   * moonshine_transcribe_stream. */
   int8_t is_new;
   /* Streaming-only: Whether the text of the line has changed since the previous
-   * call to transcribe_stream_chunk. */
+   * call to moonshine_transcribe_stream. */
   int8_t has_text_changed;
   /* Whether the speaker spans of the line have changed since the previous
-   * call to transcribe_stream_chunk. Unlike the other change flags, this can
-   * fire for lines that are already complete, since diarization refines
+   * call to moonshine_transcribe_stream. Unlike the other change flags, this
+   * can fire for lines that are already complete, since diarization refines
    * speaker assignments retroactively as more audio arrives. */
   int8_t have_speakers_changed;
   /* Speaker spans covering this line, ordered by start time and clipped to
@@ -395,6 +413,10 @@ MOONSHINE_EXPORT const char *moonshine_transcript_to_string(
    Pass ``use_speculative_decoding`` (bool, default true) to control
    speculative re-decode of the previous hypothesis on streaming updates
    (set false to fall back to greedy redecode from BOS).
+   Pass ``decode_incomplete_lines`` (bool, default true) to run the
+   decoder on in-progress lines so the transcript can update while someone
+   is still talking. Set false to encode (and diarize) as audio arrives
+   but wait until the line is complete before decoding.
    Pass ``keyterms`` (comma-separated terms, e.g.
    ``Kubernetes,Anushka Sharma,ANSI/ISO``) to bias the decoder towards words it
    would otherwise be unlikely to produce - jargon, product names, contact
@@ -422,8 +444,10 @@ MOONSHINE_EXPORT const char *moonshine_transcript_to_string(
    ``diarization_cluster_cadence`` (float seconds, default 2.0) sets the
    minimum interval between re-clustering passes - raise it to reduce cost on
    long sessions - ``diarization_analyze_cadence`` (float seconds,
-   default 0 = model default of 1.0) sets the interval between
-   segmentation/embedding model runs, and ``diarization_cluster_window_sec``
+   default 0 = model default of 1.0) sets the sliding-window step between
+   segmentation/embedding model runs (live ``add_audio`` / transcribe runs at
+   most one window per call; Stop drains the rest; silent speaker classes skip
+   embedding inference), and ``diarization_cluster_window_sec``
    (float seconds, default 120.0) limits how much audio history VBx
    re-clustering considers on each refresh (0 = unlimited full history).
    Pass ``"spelling_model_path"`` with a path to a
@@ -496,7 +520,8 @@ MOONSHINE_EXPORT int32_t moonshine_load_transcriber_from_memory(
        optional word-timestamp decoder ``decoder_with_attention.ort`` (or the
        two-pass ``alignment_model.ort``) when the ``word_timestamps`` option is
        set.
-     - Streaming (``*_STREAMING``): ``frontend.ort``, ``encoder.ort``,
+     - Streaming (``*_STREAMING``): ``frontend.ort`` (or the split pair
+       ``frontend.model.ort`` + ``frontend.weights.ort``), ``encoder.ort``,
        ``adapter.ort``, ``cross_kv.ort``, ``decoder_kv.ort``,
        ``streaming_config.json``, ``tokenizer.bin`` (all required), plus the
        optional ``decoder_kv_with_attention.ort`` when ``word_timestamps`` is
@@ -594,8 +619,12 @@ MOONSHINE_EXPORT int32_t moonshine_transcribe_without_streaming(
 
    Below is some pseudocode showing an example of how to use streaming. In a
    real application you'll want to check the return value of the functions and
-   handle errors appropriately. You can see a more complete example in the
-   moonshine-test-v2.cpp file.
+   handle errors appropriately. `get_audio_from_microphone` stands in for your
+   capture loop: feed each chunk to
+   moonshine_transcribe_add_audio_to_stream (safe from an audio callback),
+   then call moonshine_transcribe_stream on another thread when you want an
+   updated transcript. A more complete example is the streaming test in
+   core/moonshine-c-api-test.cpp.
 
    ```c
     int32_t transcriber_handle = moonshine_load_transcriber_from_files(
@@ -617,14 +646,14 @@ MOONSHINE_EXPORT int32_t moonshine_transcribe_without_streaming(
       transcript_t *partial_transcript = NULL;
       moonshine_transcribe_stream(transcriber_handle,
         stream_handle, 0, &partial_transcript);
-      print_transcript(out_transcript);
+      printf("%s\n", moonshine_transcript_to_string(partial_transcript));
     }
     moonshine_stop_stream(transcriber_handle, stream_handle);
 
     transcript_t *final_transcript = NULL;
     moonshine_transcribe_stream(transcriber_handle, stream_handle, 0,
       &final_transcript);
-    print_transcript(final_transcript);
+    printf("%s\n", moonshine_transcript_to_string(final_transcript));
 
     moonshine_free_stream(transcriber_handle, stream_handle);
     moonshine_free_transcriber(transcriber_handle);
@@ -660,8 +689,8 @@ MOONSHINE_EXPORT int32_t moonshine_create_stream(int32_t transcriber_handle,
 MOONSHINE_EXPORT int32_t moonshine_free_stream(int32_t transcriber_handle,
                                                int32_t stream_handle);
 
-/* Starts a stream. This should be called before any calls to
-   moonshine_transcribe_stream_chunk. Start/stop are supported because there may
+/* Starts a stream. This should be called before adding audio or calling
+   moonshine_transcribe_stream. Start/stop are supported because there may
    sometimes be a discontinuity in the audio input, for example when the user
    mutes their input, so we need a way to start fresh after a break like this.
    This function returns zero on success, or a non-zero error code on failure.
@@ -671,9 +700,12 @@ MOONSHINE_EXPORT int32_t moonshine_free_stream(int32_t transcriber_handle,
 MOONSHINE_EXPORT int32_t moonshine_start_stream(int32_t transcriber_handle,
                                                 int32_t stream_handle);
 
-/* Stops a stream. This function returns zero on success, or a non-zero error
-   code on failure. The error code can be converted to a human-readable string
-   using moonshine_error_to_string.
+/* Stops a stream. Further moonshine_transcribe_add_audio_to_stream calls are
+   rejected, but audio that has not yet been analyzed is kept. Call
+   moonshine_transcribe_stream afterwards to drain that leftover audio and get
+   the final transcript, with all lines marked complete. This function returns
+   zero on success, or a non-zero error code on failure. The error code can be
+   converted to a human-readable string using moonshine_error_to_string.
  */
 MOONSHINE_EXPORT int32_t moonshine_stop_stream(int32_t transcriber_handle,
                                                int32_t stream_handle);
@@ -720,6 +752,12 @@ MOONSHINE_EXPORT int32_t moonshine_transcribe_add_audio_to_stream(
    calls to this function don't result in poor performance. This can be
    overridden by setting the MOONSHINE_FLAG_FORCE_UPDATE flag.
 
+   After moonshine_stop_stream, leftover audio is analyzed even if it is
+   shorter than that interval, so the stop-then-transcribe_stream sequence in
+   the example above produces a complete transcript. You do not need
+   MOONSHINE_FLAG_FORCE_UPDATE for that final call, and you do not need to
+   have pulled partial transcripts first.
+
    `transcriber_handle` should be a handle to a transcriber returned by
    moonshine_load_transcriber_from_files or
    moonshine_load_transcriber_from_memory.
@@ -758,8 +796,9 @@ MOONSHINE_EXPORT int32_t moonshine_transcribe_stream(
    `model_arch` should be one of the MOONSHINE_EMBEDDING_MODEL_ARCH_* constants.
    Currently only MOONSHINE_EMBEDDING_MODEL_ARCH_GEMMA_300M is supported.
 
-   `model_variant` specifies which model variant to load: "fp32", "fp16", "q8",
-   "q4", or "q4f16". Pass NULL to use the default "q4" variant.
+   `model_variant` specifies which model variant to load: "q4" or "q8".
+   Pass NULL to use the default "q4" variant. "fp32", "fp16", and "q4f16"
+   are no longer supported and return an error.
 
    Returns a non-negative handle on success, or a negative error code on
    failure. The error code can be converted to a human-readable string using
@@ -780,9 +819,10 @@ MOONSHINE_EXPORT int32_t moonshine_create_embedding_model(
    need to remain valid for the duration of this call.
 
    `model_arch` should be one of the MOONSHINE_EMBEDDING_MODEL_ARCH_* constants.
-   `model_variant` selects the variant ("fp32", "fp16", "q8", "q4", "q4f16";
+   `model_variant` selects the variant ("q4", "q8";
    NULL defaults to "q4") and is only used to pick the model file when the
-   filename keys do not make it unambiguous.
+   filename keys do not make it unambiguous. "fp32", "fp16", and "q4f16" are
+   no longer supported.
 
    Returns a non-negative handle on success, or a negative error code on
    failure.
@@ -922,8 +962,9 @@ MOONSHINE_EXPORT int32_t moonshine_create_tts_synthesizer_from_files(
    moonshine_error_to_string.
 
    ``filenames[i]`` is the canonical ``MoonshineTTSOptions::files`` key (e.g.
-   ``kokoro/model.ort``, ``kokoro/config.json``,
-   ``kokoro/voices/af_heart.kokorovoice``,
+   ``kokoro/prosody.model.ort``, ``kokoro/prosody.weights.ort``,
+   ``kokoro/decoder.model.ort``, ``kokoro/decoder.weights.ort``,
+   ``kokoro/config.json``, ``kokoro/voices/af_heart.kokorovoice``,
    ``piper/onnx``, ``piper/onnx.json``, ``zipvoice/text_encoder.ort``,
    ``zipvoice/fm_decoder.ort``, ``zipvoice/vocoder.ort``,
    ``zipvoice/tokens.txt``, ``zipvoice/model.json``). For ZipVoice a
@@ -1046,7 +1087,8 @@ MOONSHINE_EXPORT int32_t moonshine_get_tts_voices(
    do are honored:
      - ``model_arch``: one of the MOONSHINE_MODEL_ARCH_* constants as a decimal
        string. When omitted, the default (first) model for the language is
-       used.
+       used. Note: MOONSHINE_MODEL_ARCH_BASE_STREAMING is defined but not
+       currently published in the model catalog.
      - ``word_timestamps`` (bool): when true, the optional attention decoder
        (``decoder_kv_with_attention.ort`` for streaming, or
        ``decoder_with_attention.ort`` for non-streaming) is included for
@@ -1068,9 +1110,10 @@ MOONSHINE_EXPORT int32_t moonshine_get_tts_voices(
    and ``checksum_type`` (e.g. "crc32c", or ""). A model is a single group,
    plus an optional second group for the spelling model (which uses a different
    ``base_url``). The buffer is allocated with ``malloc``; release it with
-   ``free``. On failure (empty/unknown language, or an unknown language+arch
-   pair) returns a non-zero error code and sets ``*out_dependencies_json`` to
-   NULL. */
+   ``free``. On failure (empty language, unknown language, or a language that
+   does not publish the requested architecture) returns a non-zero error code,
+   logs which case it is (listing the architectures that language does publish
+   when the language is known), and sets ``*out_dependencies_json`` to NULL. */
 MOONSHINE_EXPORT int32_t moonshine_get_stt_dependencies(
     const char *language, const struct moonshine_option_t *options,
     uint64_t options_count, char **out_dependencies_json);
@@ -1084,8 +1127,9 @@ MOONSHINE_EXPORT int32_t moonshine_get_stt_dependencies(
    model.
 
    ``options`` / ``options_count`` recognize ``variant`` (aliases:
-   ``model_variant``): one of ``"q4"``, ``"q8"``, ``"fp16"``, ``"fp32"``, or
-   ``"q4f16"``. When omitted, the model's default variant is used. Other
+   ``model_variant``): one of ``"q4"`` or ``"q8"``. ``"fp32"``, ``"fp16"``,
+   and ``"q4f16"`` are no longer supported. When omitted, the model's
+   default variant is used. Other
    options are ignored. The manifest lists the single all-in-one model file
    (``model_<variant>.ort``) and ``tokenizer.bin``.
 
@@ -1176,6 +1220,121 @@ MOONSHINE_EXPORT int32_t moonshine_phonemes_to_speech(
     const struct moonshine_option_t *options, uint64_t options_count,
     float **out_audio_data, uint64_t *out_audio_data_size,
     int32_t *out_sample_rate);
+
+/* --------------------------- STREAMING TEXT TO SPEECH -------------------- */
+
+/* Splits a passage into the utterances a streaming synthesizer would speak one
+   at a time. Exposed on its own so a caller can queue work itself, or show the
+   same boundaries in a UI that the audio will follow.
+
+   ``language`` is the same tag as ``moonshine_create_tts_synthesizer_*``; it
+   selects the abbreviation list ("Dr." and "z.B." do not end a sentence) and
+   the terminators that count (``。！？`` need no trailing space, ``;`` is a
+   question mark only in Greek). NULL or empty applies the language-neutral
+   rules.
+
+   Recognised ``options``:
+     ``split_on_colon``  (bool, default true) break after ":" so a lead-in like
+                         "Warning:" starts playing before the rest is
+                         synthesized.
+     ``min_codepoints``  (int, default 0) merge a unit shorter than this into
+                         the next one, so a stray "Hi." is not spoken alone.
+
+   On success ``*out_units_json`` is a NUL-terminated JSON array of strings;
+   release it with ``moonshine_free_buffer``. An empty or whitespace-only input
+   gives ``[]``. */
+MOONSHINE_EXPORT int32_t
+moonshine_tts_split_utterances(const char *language, const char *text,
+                               const struct moonshine_option_t *options,
+                               uint64_t options_count, char **out_units_json);
+
+/* One piece of synthesized audio from a streaming session. Owned by the
+   synthesizer and valid only until the next call on the same stream, the same
+   convention transcript_t uses. Copy anything you need to keep. */
+struct tts_chunk_t {
+  /* Mono PCM in [-1, 1]. Never NULL when a chunk was returned. */
+  const float *audio_data;
+  uint64_t audio_data_count;
+  int32_t sample_rate;
+  /* The text this chunk covers, or "" when the engine cut on acoustic frames
+     rather than a knowable span of characters (only the first chunk of such an
+     utterance carries text). */
+  const char *text;
+  /* Which queued utterance this came from, counting from 1. Lets a consumer
+     tell where one reply ends and the next begins without tracking flushes. */
+  uint64_t utterance_id;
+  /* Non-zero on the last chunk of an utterance. */
+  int8_t is_final;
+};
+
+/* Streaming synthesis on ``tts_synthesizer_handle``.
+
+   Pull-based and synchronous: text goes in with ``moonshine_tts_push_text`` as
+   it becomes available, and audio comes out of ``moonshine_tts_next_chunk`` a
+   chunk at a time. No thread is created and no callback is invoked, so a
+   binding can drive it from whatever worker suits its platform.
+
+   There is no session object. A synthesizer runs one generation at a time:
+   pushing text starts one, ``moonshine_tts_end_input`` finishes it, and
+   ``moonshine_tts_cancel`` abandons it. While one is in flight the one-shot
+   ``moonshine_tts_synthesize`` returns ``MOONSHINE_ERROR_BUSY`` rather than
+   competing for the model. Calls are internally serialized, so driving the
+   stream from a worker thread is safe; they block each other.
+
+   How much audio a chunk holds depends on the engine. Kokoro cuts inside a
+   sentence where its prosody/decoder stages are installed, which starts
+   playback sooner; everything else emits one chunk per sentence, which still
+   starts on the first clause rather than the last. */
+
+/* Appends text. Pieces are concatenated verbatim, so feeding an LLM's output
+   token by token reassembles the words correctly. Starts a generation if none
+   is running.
+
+   Text is held back until it forms a complete utterance, because synthesizing
+   half a sentence gets the prosody wrong. Anything left over waits for the
+   next push, a ``moonshine_tts_flush``, or ``moonshine_tts_end_input``.
+
+   Returns ``MOONSHINE_ERROR_NONE`` on success. */
+MOONSHINE_EXPORT int32_t moonshine_tts_push_text(int32_t tts_synthesizer_handle,
+                                                 const char *text);
+
+/* Queues whatever text is buffered even though it does not look like a
+   complete sentence. Use it where the caller knows the thought is finished but
+   the punctuation does not say so. */
+MOONSHINE_EXPORT int32_t moonshine_tts_flush(int32_t tts_synthesizer_handle);
+
+/* Declares that no more text is coming. Flushes, then makes
+   ``moonshine_tts_next_chunk`` report ``MOONSHINE_TTS_END_OF_STREAM`` once the
+   queue drains, which also returns the synthesizer to idle. */
+MOONSHINE_EXPORT int32_t
+moonshine_tts_end_input(int32_t tts_synthesizer_handle);
+
+/* Drops queued text, abandons the generation in progress and returns the
+   synthesizer to idle. This is the barge-in path: when someone interrupts the
+   assistant, stop the reply. Safe to call when nothing is streaming. */
+MOONSHINE_EXPORT int32_t moonshine_tts_cancel(int32_t tts_synthesizer_handle);
+
+/* Non-zero while a streaming generation is in flight. */
+MOONSHINE_EXPORT int32_t
+moonshine_tts_is_streaming(int32_t tts_synthesizer_handle);
+
+/* Produces the next chunk of audio, synthesizing it during the call.
+
+   This never waits on another thread: it blocks only for as long as the model
+   takes, and returns immediately when there is nothing to do. ``flags`` is
+   reserved and must be 0. The returned chunk is owned by the synthesizer and
+   is valid only until the next call on it.
+
+   Returns ``MOONSHINE_ERROR_NONE`` with ``*out_chunk`` set when a chunk was
+   produced, ``MOONSHINE_TTS_NEED_TEXT`` when no complete utterance is buffered
+   (push more, or flush), ``MOONSHINE_TTS_END_OF_STREAM`` after
+   ``moonshine_tts_end_input`` and the queue has drained,
+   ``MOONSHINE_TTS_CANCELLED`` once after ``moonshine_tts_cancel`` discarded a
+   reply, or a negative error code. ``*out_chunk`` is set to NULL for every
+   non-success status. */
+MOONSHINE_EXPORT int32_t
+moonshine_tts_next_chunk(int32_t tts_synthesizer_handle, uint32_t flags,
+                         const struct tts_chunk_t **out_chunk);
 
 /* Creates a grapheme to phonemizer from files on disk.
    Returns a non-negative handle on success, or a negative error code on

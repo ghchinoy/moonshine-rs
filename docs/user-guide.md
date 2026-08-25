@@ -372,6 +372,60 @@ pub struct TranscriptLine {
 }
 ```
 
+#### Text-to-Speech (TTS) & Streaming Synthesis (`moonshine_rs::tts`)
+
+`moonshine-rs` supports on-device speech synthesis across three engine backends:
+- **Kokoro** (~82M parameter high-quality neural voice synthesis).
+- **Piper** (lightweight, ultra-low latency voice synthesis).
+- **ZipVoice** (zero-shot voice cloning with reference audio clips).
+
+##### 1. One-Shot Synthesis
+Synthesize a complete string to 24kHz / 22.05kHz mono PCM audio:
+
+```rust
+use moonshine_rs::{TtsOptions, TtsSynthesizer};
+
+let options = TtsOptions::new()
+    .with_voice("kokoro_af_heart")
+    .with_speed(1.0);
+
+let synth = TtsSynthesizer::from_files("en", &["./models/tts/kokoro"], Some(&options))?;
+let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;
+
+println!("Generated {:.2}s of audio at {} Hz", audio.duration_seconds(), audio.sample_rate);
+```
+
+##### 2. Real-Time Streaming Synthesis (LLM Token Streaming)
+Feed tokens as they arrive from an LLM. Moonshine synthesizes clauses and sentences incrementally, emitting audio chunks before the full response is completed:
+
+```rust
+// Push incoming tokens from an async LLM stream
+synth.push_text("The result of ")?;
+synth.push_text("your query is complete.")?;
+
+// Poll for newly generated audio chunks
+while let moonshine_rs::TtsStreamStatus::Chunk(chunk) = synth.next_chunk()? {
+    // Play or send chunk.pcm (mono f32 samples) in real time
+    println!("Emitted {} samples for utterance {}", chunk.pcm.len(), chunk.utterance_id);
+}
+
+// Signal end of reply to drain remaining audio
+synth.end_input()?;
+while let moonshine_rs::TtsStreamStatus::Chunk(chunk) = synth.next_chunk()? {
+    // Play remaining chunks
+}
+```
+
+##### 3. Utterance Splitting
+Expose Moonshine's language-aware sentence splitter (which preserves honorifics like `"Dr. Smith"` and acronyms):
+
+```rust
+use moonshine_rs::split_utterances;
+
+let units = split_utterances(Some("en"), "Dr. Smith arrived at 10 AM. The meeting started.", None)?;
+// units: ["Dr. Smith arrived at 10 AM.", "The meeting started."]
+```
+
 #### Audio Decoding & Resampling Module (`moonshine_rs::audio`)
 
 When the `audio` feature is enabled (on by default), `moonshine-rs` provides built-in multi-format audio decoding (via `symphonia`) and high-quality sinc resampling (via `rubato`):

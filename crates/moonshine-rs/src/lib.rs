@@ -51,6 +51,12 @@ pub use moonshine_sys as sys;
 #[cfg(feature = "audio")]
 pub mod audio;
 
+pub mod tts;
+pub use tts::{
+    get_g2p_dependencies, get_tts_dependencies, get_tts_voices, split_utterances,
+    GraphemeToPhonemizer, SynthesizedAudio, TtsChunk, TtsOptions, TtsStreamStatus, TtsSynthesizer,
+};
+
 /// Errors returned by `moonshine-rs`.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
