@@ -79,7 +79,7 @@ fn download_prebuilt_release(out_dir: &Path) -> Result<(PathBuf, PathBuf), Strin
         }
     };
 
-    let version_tag = env::var("MOONSHINE_VERSION").unwrap_or_else(|_| "v0.1.2".to_string());
+    let version_tag = env::var("MOONSHINE_VERSION").unwrap_or_else(|_| "v0.1.5".to_string());
     let folder_name = asset_name.trim_end_matches(".tar.gz");
 
     let prebuilt_root = out_dir.join("moonshine-prebuilt");

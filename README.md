@@ -66,11 +66,12 @@ Moonshine provides multiple quantized ONNX speech-to-text models optimized for e
 
 - **Available Models & Weights**: Explore source weights and pre-converted ONNX activation models on the [UsefulSensors Hugging Face Hub](https://huggingface.co/UsefulSensors).
 - **Official Model Catalog & CDN**: Live manifests, checksums, and assets are published at [download.moonshine.ai](https://download.moonshine.ai).
-- **Supported Architectures**:
+- **Supported Architectures & Languages**:
   - `tiny-en` (~71 MB): Fast, lightweight footprint ideal for real-time desktop dictation.
   - `base-en` (~238 MB): Higher accuracy model for complex phrase transcription.
-  - Streaming variants (`tiny-streaming-en`, `small-streaming-en`, `medium-streaming-en`).
-  - *Note*: `base-streaming` is a defined enum architecture, but is not currently published in the official catalog for English (see [moonshine-ai/moonshine#214](https://github.com/moonshine-ai/moonshine/issues/214)).
+  - Streaming variants across multiple languages: English (`tiny`, `small`, `medium`), German (`tiny`, `small`), Spanish (`tiny`, `small`), Japanese (`tiny`, `small`), Arabic (`tiny`), Mandarin (`tiny`), Tagalog (`tiny`), Vietnamese (`tiny`).
+  - *Model Licensing*: Shipped Moonshine models are MIT licensed by default across all supported languages.
+  - *Note*: `base-streaming` is a defined enum architecture, but is not published in the official catalog (see [moonshine-ai/moonshine#214](https://github.com/moonshine-ai/moonshine/issues/214)).
 
 You can query available models and download URLs directly in Rust using `get_stt_catalog()` or `get_stt_dependencies()`.
 
