@@ -5,6 +5,14 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-08-25
+
+### Fixed
+
+- **`TtsSynthesizer::from_files` & `GraphemeToPhonemizer::from_files` Asset Root Path**:
+  - Fixed issue where `TtsSynthesizer::from_files` and `GraphemeToPhonemizer::from_files` defaulted to current working directory instead of using the provided `model_dir` path.
+  - Automatically sets `model_root` / `g2p_root` option from `model_dir`, correctly resolving nested asset files (`kokoro/config.json`, `kokoro/prosody.model.ort`, `en_us/...`).
+
 ## [0.2.5] - 2026-08-25
 
 ### Added

@@ -96,8 +96,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let options = TtsOptions::new().with_voice(voice).with_speed(1.0);
 
-    // Load synthesizer with model directory (or specific files)
-    let synth = TtsSynthesizer::from_files("en", &[&model_dir], Some(&options))?;
+    // Load synthesizer with model directory
+    let synth = TtsSynthesizer::from_files("en", &model_dir, Some(&options))?;
 
     // A. One-shot synthesis
     println!("\nA. Performing one-shot synthesis...");

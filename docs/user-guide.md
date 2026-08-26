@@ -398,7 +398,7 @@ let options = TtsOptions::new()
     .with_voice("kokoro_af_heart")
     .with_speed(1.0);
 
-let synth = TtsSynthesizer::from_files("en", &["./models/tts/kokoro"], Some(&options))?;
+let synth = TtsSynthesizer::from_files("en", "./models/tts/kokoro", Some(&options))?;
 let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;
 
 println!("Generated {:.2}s of audio at {} Hz", audio.duration_seconds(), audio.sample_rate);

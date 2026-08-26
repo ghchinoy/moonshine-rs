@@ -116,7 +116,7 @@ Synthesize text to audio on-device using Kokoro or Piper:
 use moonshine_rs::{TtsOptions, TtsSynthesizer};
 
 let options = TtsOptions::new().with_voice("kokoro_af_heart");
-let synth = TtsSynthesizer::from_files("en", &["./models/tts/kokoro"], Some(&options))?;
+let synth = TtsSynthesizer::from_files("en", "./models/tts/kokoro", Some(&options))?;
 
 // One-shot synthesis
 let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;

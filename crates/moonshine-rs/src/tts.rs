@@ -149,28 +149,31 @@ unsafe impl Send for TtsSynthesizer {}
 unsafe impl Sync for TtsSynthesizer {}
 
 impl TtsSynthesizer {
-    /// Loads a TTS synthesizer from model files on disk.
+    /// Loads a TTS synthesizer from model assets on disk located at `model_dir`.
+    ///
+    /// `model_dir` is the directory containing the downloaded TTS assets (e.g. `kokoro/`, `en_us/`).
+    /// If no `model_root` / `g2p_root` is explicitly set in `options`, `model_dir` is automatically
+    /// used as the asset root.
     ///
     /// # Errors
     /// Returns [`Error::ApiError`] if initializing the synthesizer fails.
     pub fn from_files(
         language: &str,
-        filenames: &[impl AsRef<Path>],
+        model_dir: impl AsRef<Path>,
         options: Option<&TtsOptions>,
     ) -> Result<Self> {
         let c_lang = CString::new(language)?;
+        let dir_path = model_dir.as_ref();
 
-        let mut c_filenames = Vec::with_capacity(filenames.len());
-        let mut filename_ptrs = Vec::with_capacity(filenames.len());
-
-        for f in filenames {
-            let s = f.as_ref().to_string_lossy();
-            let c_str = CString::new(s.as_bytes())?;
-            filename_ptrs.push(c_str.as_ptr());
-            c_filenames.push(c_str);
+        let mut effective_opts = options.cloned().unwrap_or_default();
+        if effective_opts.get("g2p_root").is_none()
+            && effective_opts.get("model_root").is_none()
+            && effective_opts.get("tts_root").is_none()
+            && effective_opts.get("path_root").is_none()
+        {
+            effective_opts = effective_opts.with_model_root(dir_path);
         }
 
-        let effective_opts = options.cloned().unwrap_or_default();
         let (raw_opts, _strings) = effective_opts.to_c_options()?;
         let opts_ptr = if raw_opts.is_empty() {
             ptr::null()
@@ -181,8 +184,8 @@ impl TtsSynthesizer {
         let handle = unsafe {
             sys::moonshine_create_tts_synthesizer_from_files(
                 c_lang.as_ptr(),
-                filename_ptrs.as_mut_ptr(),
-                filenames.len() as u64,
+                ptr::null_mut(),
+                0,
                 opts_ptr,
                 raw_opts.len() as u64,
                 sys::MOONSHINE_HEADER_VERSION as i32,
@@ -758,25 +761,20 @@ unsafe impl Send for GraphemeToPhonemizer {}
 unsafe impl Sync for GraphemeToPhonemizer {}
 
 impl GraphemeToPhonemizer {
-    /// Loads a grapheme-to-phonemizer from disk files.
+    /// Loads a grapheme-to-phonemizer from disk assets at `model_dir`.
     pub fn from_files(
         language: &str,
-        filenames: &[impl AsRef<Path>],
+        model_dir: impl AsRef<Path>,
         options: Option<&TtsOptions>,
     ) -> Result<Self> {
         let c_lang = CString::new(language)?;
+        let dir_path = model_dir.as_ref();
 
-        let mut c_filenames = Vec::with_capacity(filenames.len());
-        let mut filename_ptrs = Vec::with_capacity(filenames.len());
-
-        for f in filenames {
-            let s = f.as_ref().to_string_lossy();
-            let c_str = CString::new(s.as_bytes())?;
-            filename_ptrs.push(c_str.as_ptr());
-            c_filenames.push(c_str);
+        let mut effective_opts = options.cloned().unwrap_or_default();
+        if effective_opts.get("g2p_root").is_none() && effective_opts.get("model_root").is_none() {
+            effective_opts = effective_opts.with_g2p_root(dir_path);
         }
 
-        let effective_opts = options.cloned().unwrap_or_default();
         let (raw_opts, _strings) = effective_opts.to_c_options()?;
         let opts_ptr = if raw_opts.is_empty() {
             ptr::null()
@@ -787,8 +785,8 @@ impl GraphemeToPhonemizer {
         let handle = unsafe {
             sys::moonshine_create_grapheme_to_phonemizer_from_files(
                 c_lang.as_ptr(),
-                filename_ptrs.as_mut_ptr(),
-                filenames.len() as u64,
+                ptr::null_mut(),
+                0,
                 opts_ptr,
                 raw_opts.len() as u64,
                 sys::MOONSHINE_HEADER_VERSION as i32,
@@ -968,5 +966,31 @@ mod tests {
             _lock: Mutex::new(()),
         };
         assert!(g2p.text_to_phonemes("test", None).is_err());
+    }
+
+    #[test]
+    fn test_from_files_real_model() {
+        let candidates = [
+            std::env::var("MOONSHINE_TEST_TTS_DIR")
+                .ok()
+                .map(std::path::PathBuf::from),
+            Some(std::path::PathBuf::from("../../models/tts/kokoro")),
+            Some(std::path::PathBuf::from("models/tts/kokoro")),
+            Some(std::path::PathBuf::from("/tmp/models/tts/kokoro")),
+        ];
+        let model_dir = match candidates
+            .into_iter()
+            .flatten()
+            .find(|c| c.join("kokoro/config.json").exists())
+        {
+            Some(d) => d,
+            None => return,
+        };
+
+        let options = TtsOptions::new().with_voice("kokoro_af_heart");
+        let synth = TtsSynthesizer::from_files("en", &model_dir, Some(&options)).unwrap();
+        let audio = synth.synthesize("Hello test", None).unwrap();
+        assert!(!audio.pcm.is_empty());
+        assert!(audio.sample_rate > 0);
     }
 }
