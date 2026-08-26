@@ -379,6 +379,15 @@ pub struct TranscriptLine {
 - **Piper** (lightweight, ultra-low latency voice synthesis).
 - **ZipVoice** (zero-shot voice cloning with reference audio clips).
 
+##### Model Downloading
+Download required vocoder and G2P assets using the `download_tts_model` example:
+
+```bash
+# Download default Kokoro voice (kokoro_af_heart) for English:
+cargo run --example download_tts_model -p moonshine-rs -- ./models/tts/kokoro
+# or: just download-tts
+```
+
 ##### 1. One-Shot Synthesis
 Synthesize a complete string to 24kHz / 22.05kHz mono PCM audio:
 

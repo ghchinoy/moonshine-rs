@@ -5,6 +5,7 @@
 # Default model location used by the transcribe/example recipes.
 model_dir := "./models/tiny-en"
 streaming_model_dir := "./models/tiny-streaming"
+tts_model_dir := "./models/tts/kokoro"
 
 # List available recipes.
 default:
@@ -52,6 +53,10 @@ download-streaming arch="tiny-streaming" dir=streaming_model_dir:
 # Run the live microphone streaming terminal demo. Usage: `just stream-cli [model_dir]`
 stream-cli dir=streaming_model_dir:
     cargo run -p stream-cli -- {{dir}}
+
+# Download a TTS model (e.g. Kokoro or Piper). Usage: `just download-tts [voice] [dir]`
+download-tts voice="kokoro_af_heart" dir=tts_model_dir:
+    cargo run --example download_tts_model -p moonshine-rs -- {{dir}} en {{voice}}
 
 # Run the Tauri + Lit desktop demo.
 demo:

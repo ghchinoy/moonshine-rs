@@ -5,6 +5,15 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-08-25
+
+### Added
+
+- **TTS Model Downloader Example (`download_tts_model`)**:
+  - Added `examples/download_tts_model.rs` for downloading complete TTS vocoder and G2P asset bundles directly from `download.moonshine.ai`.
+  - Added `just download-tts` recipe supporting configurable voices (e.g. Kokoro, Piper).
+  - Automatically manages nested directory structures (`kokoro/...`, `en_us/...`).
+
 ## [0.2.4] - 2026-08-25
 
 ### Added

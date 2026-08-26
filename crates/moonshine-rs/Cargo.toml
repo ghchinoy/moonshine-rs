@@ -10,7 +10,7 @@ keywords = ["stt", "speech-to-text", "moonshine", "audio", "onnx"]
 categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
-moonshine-sys = { path = "../moonshine-sys", version = "0.2.4" }
+moonshine-sys = { path = "../moonshine-sys", version = "0.2.5" }
 thiserror = "1.0"
 ureq = "2.12"
 serde_json = "1.0"
@@ -58,6 +58,10 @@ path = "examples/keyterm_biasing.rs"
 [[example]]
 name = "text_to_speech"
 path = "examples/text_to_speech.rs"
+
+[[example]]
+name = "download_tts_model"
+path = "examples/download_tts_model.rs"
 
 [features]
 default = ["audio"]

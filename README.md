@@ -249,7 +249,8 @@ and run with `cargo run --example <name> -p moonshine-rs -- <args>`:
 
 | I want to… | Example | Args |
 | :--- | :--- | :--- |
-| Download a model | `download_model` | `<OUTPUT_DIR> [LANGUAGE] [ARCH]` |
+| Download an STT model | `download_model` | `<OUTPUT_DIR> [LANGUAGE] [ARCH]` |
+| Download a TTS model | `download_tts_model` | `<OUTPUT_DIR> [LANGUAGE] [VOICE]` |
 | Transcribe a file | `transcribe_file` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Real-time streaming | `stream_transcribe` | `<MODEL_DIR> <AUDIO_FILE>` |
 | Keyterm & context biasing | `keyterm_biasing` | `<STREAMING_MODEL_DIR> <AUDIO_FILE> [KEYTERMS]` |

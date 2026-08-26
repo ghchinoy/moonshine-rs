@@ -67,9 +67,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Model Synthesis (if model directory is supplied as argument)
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        println!("To perform actual audio synthesis, supply model files:\n");
+        println!("To perform actual audio synthesis, first download a TTS model:\n");
+        println!("  cargo run --example download_tts_model -p moonshine-rs -- ./models/tts/kokoro");
+        println!("  # or: just download-tts\n");
+        println!("Then run this example with the downloaded directory:\n");
         println!(
-            "  cargo run --example text_to_speech -p moonshine-rs -- <MODEL_DIR> [VOICE] [TEXT]\n"
+            "  cargo run --example text_to_speech -p moonshine-rs -- ./models/tts/kokoro kokoro_af_heart \"Hello from Moonshine Voice!\"\n"
         );
         return Ok(());
     }
