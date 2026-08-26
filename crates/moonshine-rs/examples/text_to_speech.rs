@@ -7,6 +7,15 @@
 //! 4. Streaming chunked synthesis from an LLM-style token stream with [`TtsSynthesizer::push_text`]
 //!    and [`TtsSynthesizer::next_chunk`].
 //!
+//! The library only returns raw PCM `f32` samples in memory — it does not play audio or write
+//! files itself. This example writes the resulting audio to `one_shot.wav` and `streaming.wav`
+//! in the current directory (via the `hound` crate) so you can listen to the output, e.g.:
+//!
+//! ```bash
+//! afplay one_shot.wav   # macOS
+//! # or: aplay one_shot.wav (Linux) / start one_shot.wav (Windows)
+//! ```
+//!
 //! Run:
 //!
 //! ```bash
@@ -108,6 +117,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio.sample_rate,
         audio.duration_seconds()
     );
+    write_wav("one_shot.wav", &audio.pcm, audio.sample_rate)?;
+    println!("Wrote one_shot.wav");
 
     // B. Streaming chunked synthesis (simulating tokens from an LLM)
     println!("\nB. Performing streaming chunked synthesis...");
@@ -126,6 +137,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "reply!",
     ];
 
+    let mut streamed_pcm: Vec<f32> = Vec::new();
+    let mut streamed_rate = audio.sample_rate;
+
     for token in tokens {
         print!("{token}");
         synth.push_text(token)?;
@@ -138,6 +152,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chunk.utterance_id,
                 chunk.is_final
             );
+            streamed_rate = chunk.sample_rate;
+            streamed_pcm.extend_from_slice(&chunk.pcm);
         }
     }
     println!();
@@ -151,8 +167,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             chunk.utterance_id,
             chunk.is_final
         );
+        streamed_rate = chunk.sample_rate;
+        streamed_pcm.extend_from_slice(&chunk.pcm);
     }
 
+    write_wav("streaming.wav", &streamed_pcm, streamed_rate)?;
+    println!("Wrote streaming.wav");
+
     println!("\nStreaming synthesis complete!");
+    Ok(())
+}
+
+/// Writes mono `f32` PCM samples to a 16-bit PCM WAV file.
+fn write_wav(path: &str, pcm: &[f32], sample_rate: u32) -> Result<(), Box<dyn std::error::Error>> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(path, spec)?;
+    for &sample in pcm {
+        let clamped = sample.clamp(-1.0, 1.0);
+        writer.write_sample((clamped * i16::MAX as f32) as i16)?;
+    }
+    writer.finalize()?;
     Ok(())
 }
