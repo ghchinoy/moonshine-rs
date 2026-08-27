@@ -4,3 +4,6 @@
 .DS_Store
 /docs/proposals/
 *.wav
+/models/
+/.serena/
+.beads.gate.lock
