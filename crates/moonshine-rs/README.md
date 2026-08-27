@@ -118,10 +118,12 @@ use moonshine_rs::{TtsOptions, TtsSynthesizer};
 let options = TtsOptions::new().with_voice("kokoro_af_heart");
 let synth = TtsSynthesizer::from_files("en", "./models/tts/kokoro", Some(&options))?;
 
-// One-shot synthesis
+// One-shot synthesis (returns raw mono f32 PCM in `[-1.0, 1.0]`)
 let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;
 println!("Generated {} audio samples at {} Hz", audio.pcm.len(), audio.sample_rate);
 ```
+
+> **Audio Output**: `audio.pcm` contains in-memory float samples. Save to WAV using [`hound`](https://crates.io/crates/hound) (see `examples/text_to_speech.rs`) or play in real-time with [`cpal`](https://crates.io/crates/cpal) or [`rodio`](https://crates.io/crates/rodio).
 
 ## Moonshine Models & Assets
 

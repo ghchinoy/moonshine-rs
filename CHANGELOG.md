@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`TtsSynthesizer::from_files` & `GraphemeToPhonemizer::from_files` Asset Root Path**:
   - Fixed issue where `TtsSynthesizer::from_files` and `GraphemeToPhonemizer::from_files` defaulted to current working directory instead of using the provided `model_dir` path.
   - Automatically sets `model_root` / `g2p_root` option from `model_dir`, correctly resolving nested asset files (`kokoro/config.json`, `kokoro/prosody.model.ort`, `en_us/...`).
+- **TTS Example Audio Output & Playback Documentation**:
+  - Updated `examples/text_to_speech.rs` to write `one_shot.wav` and `streaming.wav` using `hound`.
+  - Added user guide documentation for real-time streaming audio playback options (`cpal`, `rodio`, Web Audio / Tauri IPC).
 
 ## [0.2.5] - 2026-08-25
 

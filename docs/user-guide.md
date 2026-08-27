@@ -404,6 +404,8 @@ let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;
 println!("Generated {:.2}s of audio at {} Hz", audio.duration_seconds(), audio.sample_rate);
 ```
 
+> **Note on Audio Output**: `audio.pcm` contains raw mono `f32` samples in `[-1.0, 1.0]`. The library does not play audio or write files directly. To save the output to a WAV file, use a crate like [`hound`](https://crates.io/crates/hound) (see `examples/text_to_speech.rs` for a complete implementation).
+
 ##### 2. Real-Time Streaming Synthesis (LLM Token Streaming)
 Feed tokens as they arrive from an LLM. Moonshine synthesizes clauses and sentences incrementally, emitting audio chunks before the full response is completed:
 
@@ -414,16 +416,27 @@ synth.push_text("your query is complete.")?;
 
 // Poll for newly generated audio chunks
 while let moonshine_rs::TtsStreamStatus::Chunk(chunk) = synth.next_chunk()? {
-    // Play or send chunk.pcm (mono f32 samples) in real time
-    println!("Emitted {} samples for utterance {}", chunk.pcm.len(), chunk.utterance_id);
+    // chunk.pcm contains raw mono f32 samples ready for real-time streaming
+    println!(
+        "Emitted {} samples for utterance {} (final={})",
+        chunk.pcm.len(),
+        chunk.utterance_id,
+        chunk.is_final
+    );
 }
 
 // Signal end of reply to drain remaining audio
 synth.end_input()?;
 while let moonshine_rs::TtsStreamStatus::Chunk(chunk) = synth.next_chunk()? {
-    // Play remaining chunks
+    // Play or forward remaining chunks
 }
 ```
+
+##### Real-Time Audio Playback Options
+To stream synthesized speech to the speakers in real time as chunks are produced:
+- **`cpal`**: Feed `chunk.pcm` slices into a lock-free ring buffer (e.g. `ringbuf`) consumed by a `cpal` audio output stream callback.
+- **`rodio`**: Wrap chunks into an audio `rodio::buffer::SamplesBuffer<f32>` and append them to a `rodio::Sink`.
+- **Tauri / Web**: Forward PCM chunks across IPC events (`app.emit("tts-chunk", ...)`) and play them via the browser Web Audio API (`AudioWorkletNode` or chained `AudioBufferSourceNode`s) for ultra-low time-to-first-audio (TTFA).
 
 ##### 3. Utterance Splitting
 Expose Moonshine's language-aware sentence splitter (which preserves honorifics like `"Dr. Smith"` and acronyms):
