@@ -58,6 +58,10 @@ stream-cli dir=streaming_model_dir:
 download-tts voice="kokoro_af_heart" dir=tts_model_dir:
     cargo run --example download_tts_model -p moonshine-rs -- {{dir}} en {{voice}}
 
+# Check for upstream moonshine-ai/moonshine release, git tag/branch, and C API header drift.
+check-drift *args="":
+    ./scripts/check-upstream-drift.sh {{args}}
+
 # Run the Tauri + Lit desktop demo.
 demo:
     cd demo/tauri-mic-transcriber && npm install && npx @tauri-apps/cli dev

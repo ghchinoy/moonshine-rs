@@ -207,10 +207,12 @@ fn main() {
             moonshine_root.clone()
         };
 
-        println!(
-            "cargo:rerun-if-changed={}",
-            core_dir.join("moonshine-c-api.h").display()
-        );
+        for tracked in ["moonshine-c-api.h", "moonshine-c-api.cpp", "CMakeLists.txt"] {
+            println!(
+                "cargo:rerun-if-changed={}",
+                core_dir.join(tracked).display()
+            );
+        }
 
         let mut config = cmake::Config::new(&core_dir);
         config.define("MOONSHINE_BUILD_SHARED", "OFF");
