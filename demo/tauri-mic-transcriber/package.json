@@ -19,6 +19,10 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.2.0",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^6.4.5"
+  },
+  "overrides": {
+    "nanoid": "^3.3.19",
+    "source-map-js": "^1.2.2"
   }
 }
