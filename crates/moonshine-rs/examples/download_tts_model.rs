@@ -10,8 +10,9 @@
 //! # Download Kokoro default voice (kokoro_af_heart) for English:
 //! cargo run --example download_tts_model -p moonshine-rs -- ./models/tts/kokoro
 //!
-//! # Or specify language and voice:
+//! # Or specify language and voice (Kokoro, Piper, ZipVoice, or Phonon):
 //! cargo run --example download_tts_model -p moonshine-rs -- ./models/tts/piper en piper_en_US-lessac-medium
+//! cargo run --example download_tts_model -p moonshine-rs -- ./models/tts/phonon en phonon_zoey
 //!
 //! # Then synthesize speech:
 //! cargo run --example text_to_speech -p moonshine-rs -- ./models/tts/kokoro kokoro_af_heart "Hello from Moonshine Voice!"
@@ -33,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!();
         eprintln!("  OUTPUT_DIR  Directory to download the TTS model files into.");
         eprintln!("  LANGUAGE    TTS language code (default: en).");
-        eprintln!("  VOICE       Voice identifier: kokoro_af_heart (default), piper_<stem>, etc.");
+        eprintln!("  VOICE       Voice identifier: kokoro_af_heart (default), piper_<stem>, phonon_<id>, etc.");
         std::process::exit(2);
     }
 

@@ -5,6 +5,26 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-11-07
+
+### Added
+
+- **Phonon Autoregressive Streaming TTS Support (`moonshine_rs::tts`)**:
+  - Added support for upstream's new **Phonon** TTS engine (`gradium/phonon-31m-en` + `gradium/phonon-mimi` + 37 English voices from `gradium/phonon-voices`, Apache 2.0), selectable via `voice = "phonon_<id>"` (e.g. `phonon_zoey`, `phonon_delia`, `phonon_bryony`) or bare `"phonon"` with a custom `.safetensors` voice file.
+  - Added typed builder methods on `TtsOptions`: `with_phonon_temperature(f32)`, `with_phonon_seed(u32)`, `with_phonon_duration_delta(f32)`, `with_phonon_normalize_text(bool)`, and `with_phonon_voice_file(path)`.
+  - Added unit tests for Phonon option builders and Phonon voice dependency manifest resolution (`get_tts_dependencies`).
+- **Upstream Drift Checker (`just check-drift`)**:
+  - Added `scripts/check-upstream-drift.sh` and `just check-drift` recipe to verify `MOONSHINE_VERSION` prebuilt release pin, upstream git tags/`dev-*` branches, vendored `moonshine-c-api.h` parity, and local C++ checkout status.
+
+### Changed
+
+- **Upstream C API & Prebuilt Release Pin (`v0.1.6`)**:
+  - Bumped prebuilt release binary download fallback tag in `moonshine-sys/build.rs` to upstream release `v0.1.6`.
+  - Refreshed vendored C API header (`vendor/moonshine-c-api.h`) from upstream `v0.1.6`.
+  - Inherited ~20% faster untied quantized English streaming STT models (`quantized_26_11_02` for `tiny-streaming-en`, `small-streaming-en`, `medium-streaming-en`).
+  - Inherited 9x–12x Windows / Intel hybrid CPU performance speedup (P-core thread pool sizing, spin-wait disable, and ORT CPU memory arena retention).
+  - Inherited per-stream Silero VAD recurrent state isolation (`SileroVadState`) and thread-safe `std::shared_ptr<Transcriber>` handle resolution on concurrent stream destruction (upstream issue #223).
+
 ## [0.2.6] - 2026-08-25
 
 ### Fixed

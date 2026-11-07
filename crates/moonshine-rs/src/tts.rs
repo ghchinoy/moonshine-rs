@@ -1,6 +1,6 @@
 //! Text-to-Speech (TTS) and Grapheme-to-Phoneme (G2P) engine bindings.
 //!
-//! Provides on-device speech synthesis via Kokoro, Piper, and ZipVoice engines,
+//! Provides on-device speech synthesis via Kokoro, Piper, ZipVoice, and Phonon engines,
 //! including one-shot synthesis, phoneme synthesis, streaming chunked synthesis,
 //! and sentence/utterance splitting.
 
@@ -37,7 +37,8 @@ impl TtsOptions {
             .map(|(_, v)| v.as_str())
     }
 
-    /// Sets the voice identifier (e.g. `"kokoro_af_heart"`, `"piper_en_US-lessac-medium"`, or `"zipvoice_american_female"`).
+    /// Sets the voice identifier (e.g. `"kokoro_af_heart"`, `"piper_en_US-lessac-medium"`,
+    /// `"zipvoice_american_female"`, or `"phonon_zoey"`).
     pub fn with_voice(self, voice: impl AsRef<str>) -> Self {
         self.set("voice", voice.as_ref())
     }
@@ -65,6 +66,38 @@ impl TtsOptions {
     /// Sets minimum codepoints for merged utterance units (default `0`).
     pub fn with_min_codepoints(self, min: usize) -> Self {
         self.set("min_codepoints", min.to_string())
+    }
+
+    /// Sets the sampling temperature for Phonon's flow head (`0.0` is deterministic,
+    /// `< 0.0` uses the model default `0.3`).
+    pub fn with_phonon_temperature(self, temperature: f32) -> Self {
+        self.set("phonon_temperature", temperature.to_string())
+    }
+
+    /// Sets the RNG seed for Phonon's sampling noise so a given text renders repeatably (default `0`).
+    pub fn with_phonon_seed(self, seed: u32) -> Self {
+        self.set("phonon_seed", seed.to_string())
+    }
+
+    /// Directly sets Phonon's duration conditioning in roughly `[-1.0, 1.0]`
+    /// (positive slows speech down, negative speeds it up), overriding `speed`.
+    pub fn with_phonon_duration_delta(self, delta: f32) -> Self {
+        self.set("phonon_duration_delta", delta.to_string())
+    }
+
+    /// Controls whether Phonon runs typography folding and number-to-words normalization
+    /// before tokenizing (default `true`).
+    pub fn with_phonon_normalize_text(self, enable: bool) -> Self {
+        self.set(
+            "phonon_normalize_text",
+            if enable { "true" } else { "false" },
+        )
+    }
+
+    /// Supplies a custom Phonon `.safetensors` speaker-latent voice file on disk
+    /// (used when `voice` is set to bare `"phonon"`).
+    pub fn with_phonon_voice_file(self, path: impl AsRef<Path>) -> Self {
+        self.set("phonon_voice_file", path.as_ref().to_string_lossy())
     }
 
     pub(crate) fn to_c_options(&self) -> Result<(Vec<sys::moonshine_option_t>, Vec<CString>)> {
@@ -873,13 +906,35 @@ mod tests {
             .with_speed(1.2)
             .with_g2p_root("/tmp/g2p")
             .with_split_on_colon(true)
-            .with_min_codepoints(10);
+            .with_min_codepoints(10)
+            .with_phonon_temperature(0.0)
+            .with_phonon_seed(42)
+            .with_phonon_duration_delta(-0.2)
+            .with_phonon_normalize_text(true)
+            .with_phonon_voice_file("/tmp/custom_voice.safetensors");
 
         assert_eq!(opts.get("voice"), Some("kokoro_af_heart"));
         assert_eq!(opts.get("speed"), Some("1.2"));
         assert_eq!(opts.get("g2p_root"), Some("/tmp/g2p"));
         assert_eq!(opts.get("split_on_colon"), Some("true"));
         assert_eq!(opts.get("min_codepoints"), Some("10"));
+        assert_eq!(opts.get("phonon_temperature"), Some("0"));
+        assert_eq!(opts.get("phonon_seed"), Some("42"));
+        assert_eq!(opts.get("phonon_duration_delta"), Some("-0.2"));
+        assert_eq!(opts.get("phonon_normalize_text"), Some("true"));
+        assert_eq!(
+            opts.get("phonon_voice_file"),
+            Some("/tmp/custom_voice.safetensors")
+        );
+    }
+
+    #[test]
+    fn test_tts_dependencies_phonon_voice() {
+        let opts = TtsOptions::new().with_voice("phonon_zoey");
+        let deps_json = get_tts_dependencies(Some("en"), Some(&opts)).unwrap();
+        assert!(deps_json.contains("phonon/backbone.ort"));
+        assert!(deps_json.contains("phonon/mimi_seanet.ort"));
+        assert!(deps_json.contains("phonon/voices/zoey.safetensors"));
     }
 
     #[test]

@@ -110,11 +110,13 @@ stream.set_keyterms("Rust,Tokio,Tauri")?;
 
 ### Text-to-Speech (TTS) Synthesis
 
-Synthesize text to audio on-device using Kokoro or Piper:
+Synthesize text to audio on-device using Kokoro, Piper, ZipVoice, or Phonon:
 
 ```rust
 use moonshine_rs::{TtsOptions, TtsSynthesizer};
 
+// Use Kokoro ("kokoro_af_heart"), Piper ("piper_en_US-lessac-medium"),
+// ZipVoice ("zipvoice_american_female"), or Phonon ("phonon_zoey"):
 let options = TtsOptions::new().with_voice("kokoro_af_heart");
 let synth = TtsSynthesizer::from_files("en", "./models/tts/kokoro", Some(&options))?;
 

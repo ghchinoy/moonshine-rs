@@ -374,10 +374,11 @@ pub struct TranscriptLine {
 
 #### Text-to-Speech (TTS) & Streaming Synthesis (`moonshine_rs::tts`)
 
-`moonshine-rs` supports on-device speech synthesis across three engine backends:
-- **Kokoro** (~82M parameter high-quality neural voice synthesis).
-- **Piper** (lightweight, ultra-low latency voice synthesis).
-- **ZipVoice** (zero-shot voice cloning with reference audio clips).
+`moonshine-rs` supports on-device speech synthesis across four engine backends:
+- **Kokoro** (~82M parameter high-quality neural voice synthesis, e.g. `kokoro_af_heart`).
+- **Piper** (lightweight, ultra-low latency voice synthesis, e.g. `piper_en_US-lessac-medium`).
+- **ZipVoice** (zero-shot voice cloning with built-in or caller-supplied reference audio clips, e.g. `zipvoice_american_female`).
+- **Phonon** (31M-parameter autoregressive English streaming model built on Pocket TTS & Mimi codec, e.g. `phonon_zoey`, `phonon_delia`, `phonon_bryony`, or bare `phonon` with a custom `.safetensors` speaker latent file).
 
 ##### Model Downloading
 Download required vocoder and G2P assets using the `download_tts_model` example:
@@ -386,6 +387,9 @@ Download required vocoder and G2P assets using the `download_tts_model` example:
 # Download default Kokoro voice (kokoro_af_heart) for English:
 cargo run --example download_tts_model -p moonshine-rs -- ./models/tts/kokoro
 # or: just download-tts
+
+# Download a Phonon voice (e.g. phonon_zoey):
+cargo run --example download_tts_model -p moonshine-rs -- ./models/tts/phonon en phonon_zoey
 ```
 
 ##### 1. One-Shot Synthesis
