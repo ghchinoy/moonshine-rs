@@ -107,7 +107,7 @@ fn download_prebuilt_release(out_dir: &Path) -> Result<(PathBuf, PathBuf), Strin
             )
         })?;
 
-        let gz = flate2::read::GzDecoder::new(response.into_reader());
+        let gz = flate2::read::GzDecoder::new(response.into_body().into_reader());
         let mut archive = tar::Archive::new(gz);
 
         archive

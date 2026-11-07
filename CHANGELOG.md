@@ -5,6 +5,15 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-11-07
+
+### Changed
+
+- **Dependency Upgrades**:
+  - Upgraded `ureq` to `3.x`, `thiserror` to `2.0`, `dirs` to `7.0`, `bindgen` to `0.73`, and `enigo` to `0.6`, plus refreshed workspace `Cargo.lock` and Tauri v2 frontend npm packages to latest compatible releases.
+- **Documentation Refresh**:
+  - Updated root `README.md`, `crates/moonshine-sys/README.md`, `crates/moonshine-rs` rustdoc, and `docs/user-guide.md` to reflect current `0.2.x` installation, `v0.1.6` prebuilt defaults, streaming model layouts, Phonon TTS, and implemented roadmap features.
+
 ## [0.2.7] - 2026-11-07
 
 ### Added

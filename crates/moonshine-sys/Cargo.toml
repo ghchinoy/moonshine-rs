@@ -10,11 +10,11 @@ keywords = ["stt", "speech-to-text", "moonshine", "ffi", "onnx"]
 categories = ["external-ffi-bindings", "multimedia::audio"]
 
 [build-dependencies]
-bindgen = "0.69"
+bindgen = "0.73"
 cc = "1.0"
 cmake = "0.1"
 flate2 = "1.0"
 tar = "0.4"
-ureq = "2.12"
+ureq = "3"
 
 [dependencies]

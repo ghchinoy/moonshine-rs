@@ -58,7 +58,7 @@ catalog browsing.
 - **Static Linking**: Compiles `libmoonshine` from source via CMake and statically embeds ONNX Runtime. Zero external `.dylib` / `.so` runtime dependencies.
 - **Fast Performance**: Transcribes 44 seconds of audio in under 1 second using the `tiny-en` model on Apple Silicon.
 - **Safe API**: Ergonomic Rust wrapper over low-level FFI with safe memory management, typed error handling, and thread-safe transcriber handles.
-- **Text-to-Speech (TTS)**: On-device voice synthesis via Kokoro, Piper, and ZipVoice engines with support for one-shot audio generation, streaming token synthesis, and sentence splitting.
+- **Text-to-Speech (TTS)**: On-device voice synthesis via Kokoro, Piper, ZipVoice, and Phonon engines with support for one-shot audio generation, streaming token synthesis, and sentence splitting.
 - **Dependency & Catalog Metadata**: Query official STT model catalogs and asset manifests natively in Rust.
 
 ## Moonshine Models
@@ -91,7 +91,7 @@ Add `moonshine-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonshine-rs = "0.1"
+moonshine-rs = "0.2"
 ```
 
 ### Default: prebuilt binaries (no C++ toolchain required)
@@ -118,7 +118,7 @@ You can pin a specific upstream release with the `MOONSHINE_VERSION` environment
 variable (defaults to the version this crate was tested against):
 
 ```bash
-MOONSHINE_VERSION=v0.1.1 cargo build
+MOONSHINE_VERSION=v0.1.6 cargo build
 ```
 
 ### Advanced: build from source (fully static, all platforms)
@@ -340,27 +340,32 @@ For a fully static binary on Linux/Windows, use the source build (`MOONSHINE_DIR
 
 Feature status:
 
-- ✅ Batch (non-streaming) transcription
+- ✅ Batch (non-streaming) transcription (`Transcriber::transcribe`)
+- ✅ Real-time streaming transcription (`TranscriberStream`, `OwnedTranscriberStream`)
+- ✅ Domain customization & runtime keyterm/context biasing (`set_keyterms`, `set_context`)
+- ✅ Text-to-Speech (TTS) & Grapheme-to-Phoneme (G2P) (`Kokoro`, `Piper`, `ZipVoice`, `Phonon`)
+- ✅ In-memory model loading (`Transcriber::from_memory_files`, `TtsSynthesizer::from_memory`)
 - ✅ Multi-format audio decode + 16 kHz resample (`audio` feature)
 - ✅ Model catalog / dependency manifest queries
-- ✅ Speaker identification (diarization)
-- ⏳ Word-level timestamps (requires attention-decoder model)
-- ⏳ Real-time streaming API — tracked in the project issue tracker
-- ⏳ Text-to-Speech (TTS) & Grapheme-to-Phoneme (G2P)
+- ✅ Speaker identification (diarization) & word-level timestamps
 
 See the [User Guide roadmap](docs/user-guide.md#9-current-scope--roadmap) for details.
 
 ## Contributing
 
-`moonshine-rs` is in early development. For major changes or feature requests, please open an issue first before submitting a pull request.
+`moonshine-rs` is in active development. For major changes or feature requests, please open an issue first before submitting a pull request.
 
 Common tasks are available via [`just`](https://github.com/casey/just):
 
 ```bash
-just            # list recipes
-just download   # fetch the tiny-en model into ./models/tiny-en
+just                    # list recipes
+just download           # fetch the tiny-en model into ./models/tiny-en
+just download-streaming # fetch tiny-streaming into ./models/tiny-streaming
+just download-tts       # fetch default Kokoro TTS voice into ./models/tts/kokoro
 just transcribe ./speech.wav
-just test       # run tests + doctests
+just stream-cli         # run live microphone streaming CLI demo
+just check-drift        # check upstream moonshine-ai/moonshine release & header drift
+just test               # run tests + doctests
 ```
 
 ## License

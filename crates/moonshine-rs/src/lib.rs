@@ -99,8 +99,9 @@ pub fn get_version() -> i32 {
 /// The model architecture to load. Must match the model files on disk.
 ///
 /// Batch (non-streaming) transcription uses [`Tiny`](ModelArch::Tiny) or
-/// [`Base`](ModelArch::Base); the `*Streaming` variants target the (not yet
-/// wrapped) streaming API.
+/// [`Base`](ModelArch::Base); the `*Streaming` variants target real-time
+/// streaming sessions via [`Transcriber::create_stream`] and
+/// [`Transcriber::create_owned_stream`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelArch {
     /// Smallest, fastest English model (`tiny-en`, ~71 MB).
@@ -1439,7 +1440,8 @@ pub fn ensure_diarization_models_downloaded() -> Result<PathBuf> {
             })?;
 
             let mut bytes = Vec::new();
-            resp.into_reader()
+            resp.into_body()
+                .into_reader()
                 .read_to_end(&mut bytes)
                 .map_err(|e| Error::ApiError {
                     code: -1,

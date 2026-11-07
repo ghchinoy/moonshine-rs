@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("fetch {name} <- {url}");
             let resp = ureq::get(url).call()?;
             let mut bytes = Vec::new();
-            resp.into_reader().read_to_end(&mut bytes)?;
+            resp.into_body().into_reader().read_to_end(&mut bytes)?;
             fs::write(&dest, &bytes)?;
             println!("      wrote {} bytes to {}", bytes.len(), dest.display());
         }
