@@ -433,6 +433,17 @@ let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;
 println!("Generated {:.2}s of audio at {} Hz", audio.duration_seconds(), audio.sample_rate);
 ```
 
+For **Phonon** (`gradium/phonon-31m-en`), additional sampling and duration conditioning options are available on `TtsOptions`:
+
+```rust
+let phonon_opts = TtsOptions::new()
+    .with_voice("phonon_zoey")
+    .with_phonon_temperature(0.0)     // 0.0 = deterministic, <0 = model default (0.3)
+    .with_phonon_seed(42)             // RNG seed for sampling noise
+    .with_phonon_duration_delta(0.1)  // Direct duration conditioning in [-1.0, 1.0] (positive = slower)
+    .with_phonon_normalize_text(true);
+```
+
 > **Note on Audio Output**: `audio.pcm` contains raw mono `f32` samples in `[-1.0, 1.0]`. The library does not play audio or write files directly. To save the output to a WAV file, use a crate like [`hound`](https://crates.io/crates/hound) (see `examples/text_to_speech.rs` for a complete implementation).
 
 ##### 2. Real-Time Streaming Synthesis (LLM Token Streaming)

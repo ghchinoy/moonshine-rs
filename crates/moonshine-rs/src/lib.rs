@@ -1,9 +1,12 @@
 //! Idiomatic, memory-safe Rust bindings for [Moonshine Voice] — fast, on-device
-//! speech-to-text powered by ONNX Runtime.
+//! speech-to-text (STT) and text-to-speech (TTS) powered by ONNX Runtime.
 //!
 //! `moonshine-rs` wraps the official `libmoonshine` C API with safe types:
-//! typed [`Error`]s, automatic resource cleanup via [`Drop`], and a
-//! `Send + Sync` [`Transcriber`] suitable for long-running host applications.
+//! typed [`Error`]s, automatic resource cleanup via [`Drop`], real-time
+//! streaming sessions ([`TranscriberStream`], [`OwnedTranscriberStream`]),
+//! runtime domain customization (`with_keyterms`, `set_keyterms`, `set_context`),
+//! and on-device speech synthesis ([`TtsSynthesizer`] supporting Kokoro, Piper,
+//! ZipVoice, and Phonon).
 //!
 //! # Quick start
 //!

@@ -3,14 +3,14 @@ name = "moonshine-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Idiomatic Rust wrapper for Moonshine Voice speech-to-text"
+description = "Idiomatic Rust wrapper for Moonshine Voice speech-to-text (STT) and text-to-speech (TTS)"
 repository.workspace = true
 readme = "README.md"
-keywords = ["stt", "speech-to-text", "moonshine", "audio", "onnx"]
+keywords = ["stt", "tts", "speech-to-text", "text-to-speech", "moonshine"]
 categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
-moonshine-sys = { path = "../moonshine-sys", version = "0.2.8" }
+moonshine-sys = { path = "../moonshine-sys", version = "0.2.9" }
 thiserror = "2.0"
 ureq = "3"
 serde_json = "1.0"

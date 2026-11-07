@@ -5,6 +5,13 @@ All notable changes to `moonshine-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-11-07
+
+### Changed
+
+- **Crate README, Rustdoc & Metadata Polish**:
+  - Updated `crates/moonshine-rs/README.md` (rendered on crates.io), root `README.md`, `crates/moonshine-rs/src/lib.rs` top-level rustdoc (rendered on docs.rs), and `docs/user-guide.md` with complete TTS & Phonon streaming synthesis examples, `0.2` dependency snippets, updated Tauri v2 Material 3 / overlay demo documentation, and `tts` / `text-to-speech` crate keywords.
+
 ## [0.2.8] - 2026-11-07
 
 ### Changed

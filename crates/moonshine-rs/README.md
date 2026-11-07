@@ -1,22 +1,23 @@
 # moonshine-rs
 
-Idiomatic Rust wrapper for [Moonshine Voice](https://github.com/moonshine-ai/moonshine) — fast, on-device speech-to-text powered by ONNX Runtime.
+Idiomatic Rust wrapper for [Moonshine Voice](https://github.com/moonshine-ai/moonshine) — fast, on-device speech-to-text (STT) and text-to-speech (TTS) powered by ONNX Runtime.
 
 [![crates.io](https://img.shields.io/crates/v/moonshine-rs.svg)](https://crates.io/crates/moonshine-rs)
 [![docs.rs](https://docs.rs/moonshine-rs/badge.svg)](https://docs.rs/moonshine-rs)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-`moonshine-rs` provides high-level, memory-safe Rust bindings to the official `libmoonshine` C API. It statically embeds ONNX Runtime and includes multi-format audio decoding (MP3, WAV, AAC, FLAC, OGG) with automatic 16kHz resampling.
+`moonshine-rs` provides high-level, memory-safe Rust bindings to the official `libmoonshine` C API. By default it fetches official prebuilt `libmoonshine` binaries at build time (or compiles from source via `MOONSHINE_DIR`), and includes multi-format audio decoding (MP3, WAV, AAC, FLAC, OGG, M4A) with automatic 16kHz resampling.
 
 ## Features
 
-- **On-Device STT**: Transcribe audio locally using quantized Moonshine models (`tiny-en`, `base-en`, etc.).
+- **On-Device STT**: Transcribe audio locally using quantized Moonshine models (`tiny-en`, `base-en`, `tiny-streaming`, `small-streaming`, `medium-streaming`).
 - **Real-Time Streaming**: Low-latency incremental speech recognition with `TranscriberStream` & `OwnedTranscriberStream`.
-- **Domain Customization**: Dynamically bias recognition towards specialized vocabularies, technical jargon, and contact/product names without model retraining (see [Moonshine Domain Customization Guide](https://github.com/moonshine-ai/moonshine/blob/main/docs/models/domain-customization.md)).
+- **Domain Customization**: Dynamically bias recognition towards specialized vocabularies, technical jargon, and contact/product names without model retraining (`with_keyterms`, `with_context`, `set_keyterms`, `set_context`).
+- **Text-to-Speech (TTS) & G2P**: On-device voice synthesis across **Kokoro**, **Piper**, **ZipVoice**, and **Phonon** engines with one-shot synthesis, LLM token streaming (`push_text` / `next_chunk`), and utterance splitting.
+- **Speaker Diarization & Word Timestamps**: Built-in speaker attribution (`with_identify_speakers`, auto-cached diarization models) and per-word timing/confidence.
+- **In-Memory Model Loading**: Initialize STT (`Transcriber::from_memory_files`) and TTS (`TtsSynthesizer::from_memory`) directly from embedded byte buffers.
 - **Multi-Format Audio**: Direct decoding and 16kHz resampling for MP3, WAV, AAC, FLAC, OGG, and M4A audio files via `moonshine_rs::audio`.
-- **Text-to-Speech (TTS)**: On-device voice synthesis (Kokoro, Piper, ZipVoice) with one-shot and streaming chunked synthesis.
-- **Zero Runtime `.dylib` Dependencies**: Statically links `libmoonshine` and ONNX Runtime.
-- **Safe API**: Typed errors, automatic resource management (`Drop`), and thread-safe transcriber handles.
+- **Safe API**: Typed errors, automatic resource management (`Drop`), and `Send + Sync` handles.
 
 ## Installation
 
@@ -24,7 +25,7 @@ Add `moonshine-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonshine-rs = "0.1"
+moonshine-rs = "0.2"
 ```
 
 ### Building
@@ -68,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pcm_data = load_audio_for_transcription("audio.mp3")?;
 
     // 2. Load transcriber with model files
-    let model_dir = Path::new("path/to/tiny-en/quantized/tiny-en");
+    let model_dir = Path::new("./models/tiny-en");
     let options = TranscriberOptions::new();
     let transcriber = Transcriber::from_files(model_dir, ModelArch::Tiny, Some(&options))?;
 
@@ -110,19 +111,29 @@ stream.set_keyterms("Rust,Tokio,Tauri")?;
 
 ### Text-to-Speech (TTS) Synthesis
 
-Synthesize text to audio on-device using Kokoro, Piper, ZipVoice, or Phonon:
+Synthesize text to audio on-device using **Kokoro**, **Piper**, **ZipVoice**, or **Phonon**:
 
 ```rust
-use moonshine_rs::{TtsOptions, TtsSynthesizer};
+use moonshine_rs::{TtsOptions, TtsStreamStatus, TtsSynthesizer};
 
 // Use Kokoro ("kokoro_af_heart"), Piper ("piper_en_US-lessac-medium"),
 // ZipVoice ("zipvoice_american_female"), or Phonon ("phonon_zoey"):
-let options = TtsOptions::new().with_voice("kokoro_af_heart");
-let synth = TtsSynthesizer::from_files("en", "./models/tts/kokoro", Some(&options))?;
+let options = TtsOptions::new()
+    .with_voice("phonon_zoey")
+    .with_phonon_temperature(0.0);
+let synth = TtsSynthesizer::from_files("en", "./models/tts/phonon", Some(&options))?;
 
 // One-shot synthesis (returns raw mono f32 PCM in `[-1.0, 1.0]`)
 let audio = synth.synthesize("Hello from Moonshine Voice!", None)?;
 println!("Generated {} audio samples at {} Hz", audio.pcm.len(), audio.sample_rate);
+
+// Or stream LLM tokens incrementally:
+synth.push_text("Streaming speech synthesis ")?;
+synth.push_text("with low time-to-first-audio.")?;
+synth.end_input()?;
+while let TtsStreamStatus::Chunk(chunk) = synth.next_chunk()? {
+    println!("Chunk: {} samples (final={})", chunk.pcm.len(), chunk.is_final);
+}
 ```
 
 > **Audio Output**: `audio.pcm` contains in-memory float samples. Save to WAV using [`hound`](https://crates.io/crates/hound) (see `examples/text_to_speech.rs`) or play in real-time with [`cpal`](https://crates.io/crates/cpal) or [`rodio`](https://crates.io/crates/rodio).
